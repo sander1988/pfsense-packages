@@ -2,7 +2,7 @@
 /* $Id$ */
 /*
     autoconfigbackup.inc
-    Copyright (C) 2008 Scott Ullrich
+    Copyright (C) 2008-2014 Electric Sheep Fencing LP  
 
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions are met:
@@ -29,8 +29,8 @@
 require_once("filter.inc");
 require_once("notices.inc");
 
-$pfSversion = str_replace("\n", "", file_get_contents("/etc/version"));
-if(strstr($pfSversion, "1.2")) 
+$pf_version=substr(trim(file_get_contents("/etc/version")),0,3);
+if ($pf_version < 2.0)
 	require_once("crypt_acb.php");
 
 // Plugin moved to save only
@@ -40,11 +40,20 @@ if(file_exists("/usr/local/pkg/parse_config/parse_config_upload.php"))
 	unlink("/usr/local/pkg/parse_config/parse_config_upload.php");
 
 /* ensures patches match */
-function custom_php_validation_command($post, $input_errors) {
+function custom_php_validation_command($post, &$input_errors) {
 	global $_POST, $savemsg, $config;
 
+	if(!$post['username'])
+		$input_errors[] = "Username is required.";
+
+	if(!$post['password'] or !$post['passwordagain'])
+		$input_errors[] = "The subscription password is required.";
+
+	if(!$post['crypto_password'] or !$post['crypto_password2'])
+		$input_errors[] = "The encryption password is required.";
+
 	if($post['password'] <> $post['passwordagain']) 
-		$input_errors[] = "Sorry, the entered passwords do not match.";
+		$input_errors[] = "Sorry, the entered portal.pfsense.org passwords do not match.";
 
 	if($post['crypto_password'] <> $post['crypto_password2']) 
 		$input_errors[] = "Sorry, the entered encryption passwords do not match.";
@@ -57,6 +66,21 @@ function custom_php_validation_command($post, $input_errors) {
 	
 	// We do not need to store this value.
 	unset($_POST['testconnection']);
+}
+
+function configure_proxy() {
+	global $config;
+	$ret = array();
+	if (!empty($config['system']['proxyurl'])) {
+		$ret[CURLOPT_PROXY] = $config['system']['proxyurl'];
+		if (!empty($config['system']['proxyport']))
+			$ret[CURLOPT_PROXYPORT] = $config['system']['proxyport'];
+		if (!empty($config['system']['proxyuser']) && !empty($config['system']['proxypass'])) {
+			$ret[CURLOPT_PROXYAUTH] = CURLAUTH_ANY | CURLAUTH_ANYSAFE;
+			$ret[CURLOPT_PROXYUSERPWD] = "{$config['system']['proxyuser']}:{$config['system']['proxypass']}";
+		}
+	}
+	return $ret;
 }
 
 function test_connection($post) {
@@ -86,13 +110,16 @@ function test_connection($post) {
 
 	// Populate available backups
 	$curl_session = curl_init();
-	curl_setopt($curl_session, CURLOPT_USERPWD, "{$username}:{$password}");
 	curl_setopt($curl_session, CURLOPT_URL, $get_url);
+	curl_setopt($curl_session, CURLOPT_HTTPHEADER, array("Authorization: Basic " . base64_encode("{$username}:{$password}")));
 	curl_setopt($curl_session, CURLOPT_SSL_VERIFYPEER, 0);
 	curl_setopt($curl_session, CURLOPT_POST, 1);
 	curl_setopt($curl_session, CURLOPT_RETURNTRANSFER, 1);
 	curl_setopt($curl_session, CURLOPT_CONNECTTIMEOUT, 55);
 	curl_setopt($curl_session, CURLOPT_TIMEOUT, 30);
+	curl_setopt($curl_session, CURLOPT_USERAGENT, $g['product_name'] . '/' . rtrim(file_get_contents("/etc/version")));
+	// Proxy
+	curl_setopt_array($curl_session, configure_proxy());
 
 	curl_setopt($curl_session, CURLOPT_POSTFIELDS, "action=showbackups&hostname={$hostname}");
 	$data = curl_exec($curl_session);
@@ -117,9 +144,6 @@ function upload_config($reasonm = "") {
 	 *   This file plugs into config.inc (/usr/local/pkg/parse_config)
 	 *   and runs every time the running firewall filter changes.
 	 * 
-	 *   Written by Scott Ullrich
-	 *   (C) 2008 BSD Perimeter LLC 
-	 *
 	 */
 	
 	if(file_exists("/tmp/acb_nooverwrite")) {
@@ -130,13 +154,11 @@ function upload_config($reasonm = "") {
 	}
 
 	// Define some needed variables
-	if(!file_exists("/cf/conf/lastpfSbackup.txt")) {
-		conf_mount_rw();
-		touch("/cf/conf/lastpfSbackup.txt");
-		conf_mount_ro();
-	}
+	if(file_exists("/cf/conf/lastpfSbackup.txt"))
+		$last_backup_date = str_replace("\n", "", file_get_contents("/cf/conf/lastpfSbackup.txt"));
+	else
+		$last_backup_date = "";
 
-	$last_backup_date 	= str_replace("\n", "", file_get_contents("/cf/conf/lastpfSbackup.txt"));
 	$last_config_change = $config['revision']['time'];
 	$hostname  			= $config['system']['hostname'] . "." . $config['system']['domain'];
 	if($reasonm)
@@ -148,7 +170,7 @@ function upload_config($reasonm = "") {
 	$encryptpw 			= $config['installedpackages']['autoconfigbackup']['config'][0]['crypto_password'];
 
 	// Define upload_url, must be present after other variable definitions due to username, password
-	$upload_url = "https://{$username}:{$password}@portal.pfsense.org/pfSconfigbackups/backup.php";
+	$upload_url = "https://portal.pfsense.org/pfSconfigbackups/backup.php";
 
 	if(!$username or !$password or !$encryptpw) {
 		if(!file_exists("/cf/conf/autoconfigback.notice")) {
@@ -166,8 +188,6 @@ function upload_config($reasonm = "") {
 
 				// Mount RW (if needed)
 				conf_mount_rw();
-				// Lock config
-				config_lock();
 
 				$notice_text = "Beginning https://portal.pfsense.org configuration backup.";
 				log_error($notice_text);
@@ -192,16 +212,20 @@ function upload_config($reasonm = "") {
 					$fields_string .= $key.'='.$value.'&'; 
 				rtrim($fields_string,'&');
 
-				// Check configuration into the BSDP repo
+				// Check configuration into the ESF repo
 				$curl_session = curl_init();
 				curl_setopt($curl_session, CURLOPT_URL, $upload_url);  
+				curl_setopt($curl_session, CURLOPT_HTTPHEADER, array("Authorization: Basic " . base64_encode("{$username}:{$password}")));
 				curl_setopt($curl_session, CURLOPT_POST, count($post_fields));  
 				curl_setopt($curl_session, CURLOPT_POSTFIELDS, $fields_string);
 				curl_setopt($curl_session, CURLOPT_RETURNTRANSFER, 1);		
 				curl_setopt($curl_session, CURLOPT_SSL_VERIFYPEER, 0);
 				curl_setopt($curl_session, CURLOPT_CONNECTTIMEOUT, 55);
 				curl_setopt($curl_session, CURLOPT_TIMEOUT, 30);
-
+				curl_setopt($curl_session, CURLOPT_USERAGENT, $g['product_name'] . '/' . rtrim(file_get_contents("/etc/version")));
+				// Proxy
+				curl_setopt_array($curl_session, configure_proxy());
+				
 				$data = curl_exec($curl_session);
 				if (curl_errno($curl_session)) {
 					$fd = fopen("/tmp/backupdebug.txt", "w");
@@ -228,8 +252,6 @@ function upload_config($reasonm = "") {
 					update_filter_reload_status($notice_text);	
 				}
 
-				// Unlock config
-				config_unlock();
 				// Mount image RO (if needed)
 				conf_mount_ro();
 
@@ -240,4 +262,3 @@ function upload_config($reasonm = "") {
 	}	
 }
 
-?>

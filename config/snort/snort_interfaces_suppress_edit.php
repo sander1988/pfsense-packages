@@ -10,6 +10,7 @@
  *
  * modified for the pfsense snort package
  * Copyright (C) 2009-2010 Robert Zelaya.
+ * Copyright (C) 2014 Bill Meeks
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -37,7 +38,6 @@
 require_once("guiconfig.inc");
 require_once("/usr/local/pkg/snort/snort.inc");
 
-
 if (!is_array($config['installedpackages']['snortglobal']))
 	$config['installedpackages']['snortglobal'] = array();
 $snortglob = $config['installedpackages']['snortglobal'];
@@ -48,9 +48,16 @@ if (!is_array($config['installedpackages']['snortglobal']['suppress']['item']))
 	$config['installedpackages']['snortglobal']['suppress']['item'] = array();
 $a_suppress = &$config['installedpackages']['snortglobal']['suppress']['item'];
 
-$id = $_GET['id'];
-if (isset($_POST['id']))
+if (isset($_POST['id']) && is_numericint($_POST['id']))
 	$id = $_POST['id'];
+elseif (isset($_GET['id']) && is_numericint($_GET['id']))
+	$id = htmlspecialchars($_GET['id']);
+
+/* Should never be called without identifying list index, so bail */
+if (is_null($id)) {
+	header("Location: /snort/snort_interfaces_suppress.php");
+	exit;
+}
 
 /* returns true if $name is a valid name for a whitelist file name or ip */
 function is_validwhitelistname($name) {
@@ -77,13 +84,18 @@ if (isset($id) && $a_suppress[$id]) {
 		$pconfig['uuid'] = uniqid();
 }
 
-if ($_POST['submit']) {
+if ($_POST['save']) {
 	unset($input_errors);
 	$pconfig = $_POST;
 
 	$reqdfields = explode(" ", "name");
 	$reqdfieldsn = array("Name");
-	do_input_validation($_POST, $reqdfields, $reqdfieldsn, &$input_errors);
+
+	$pf_version=substr(trim(file_get_contents("/etc/version")),0,3);
+	if ($pf_version < 2.1)
+		$input_errors = eval('do_input_validation($_POST, $reqdfields, $reqdfieldsn, &$input_errors); return $input_errors;');
+	else
+		do_input_validation($_POST, $reqdfields, $reqdfieldsn, $input_errors);
 
 	if(strtolower($_POST['name']) == "defaultwhitelist")
 		$input_errors[] = "Whitelist file names may not be named defaultwhitelist.";
@@ -102,7 +114,6 @@ if ($_POST['submit']) {
 		}
 	}
 
-
 	if (!$input_errors) {
 		$s_list = array();
 		$s_list['name'] = $_POST['name'];
@@ -110,7 +121,7 @@ if ($_POST['submit']) {
 		$s_list['descr']  =  mb_convert_encoding($_POST['descr'],"HTML-ENTITIES","auto");
 		if ($_POST['suppresspassthru']) {
 			$s_list['suppresspassthru'] = str_replace("&#8203;", "", $s_list['suppresspassthru']);
-			$s_list['suppresspassthru'] = base64_encode($_POST['suppresspassthru']);
+			$s_list['suppresspassthru'] = base64_encode(str_replace("\r\n", "\n", $_POST['suppresspassthru']));
 		}
 
 		if (isset($id) && $a_suppress[$id])
@@ -118,8 +129,10 @@ if ($_POST['submit']) {
 		else
 			$a_suppress[] = $s_list;
 
-		write_config();
+		write_config("Snort pkg: modified Suppress List {$s_list['name']}.");
+		conf_mount_rw();
 		sync_snort_package_config();
+		conf_mount_ro();
 
 		header("Location: /snort/snort_interfaces_suppress.php");
 		exit;
@@ -135,14 +148,14 @@ include_once("head.inc");
 
 <?php
 include("fbegin.inc");
-if($pfsense_stable == 'yes'){echo '<p class="pgtitle">' . $pgtitle . '</p>';}
-
-if ($input_errors) print_input_errors($input_errors);
+if ($input_errors)
+	print_input_errors($input_errors);
 if ($savemsg)
 	print_info_box($savemsg);
 
 ?>
 <form action="/snort/snort_interfaces_suppress_edit.php" name="iform" id="iform" method="post">
+<input name="id" type="hidden" value="<?=$id;?>"/>
 <table width="100%" border="0" cellpadding="0" cellspacing="0">
 <tr><td>
 <?php
@@ -152,10 +165,13 @@ if ($savemsg)
         $tab_array[2] = array(gettext("Updates"), false, "/snort/snort_download_updates.php");
         $tab_array[3] = array(gettext("Alerts"), false, "/snort/snort_alerts.php");
         $tab_array[4] = array(gettext("Blocked"), false, "/snort/snort_blocked.php");
-        $tab_array[5] = array(gettext("Whitelists"), false, "/snort/snort_interfaces_whitelist.php");
+	$tab_array[5] = array(gettext("Pass Lists"), false, "/snort/snort_passlist.php");
         $tab_array[6] = array(gettext("Suppress"), true, "/snort/snort_interfaces_suppress.php");
-        $tab_array[7] = array(gettext("Sync"), false, "/pkg_edit.php?xml=/snort/snort_sync.xml");
-        display_top_tabs($tab_array);
+	$tab_array[7] = array(gettext("IP Lists"), false, "/snort/snort_ip_list_mgmt.php");
+	$tab_array[8] = array(gettext("SID Mgmt"), false, "/snort/snort_sid_mgmt.php");
+	$tab_array[9] = array(gettext("Log Mgmt"), false, "/snort/snort_log_mgmt.php");
+	$tab_array[10] = array(gettext("Sync"), false, "/pkg_edit.php?xml=snort/snort_sync.xml");
+        display_top_tabs($tab_array, true);
 ?>
 </td></tr>
 <tr><td><div id="mainarea">
@@ -204,11 +220,10 @@ if ($savemsg)
 	</td>
 </tr>
 <tr>
-	<td colspan="2"><input id="submit" name="submit" type="submit" 
+	<td colspan="2"><input id="save" name="save" type="submit" 
 		class="formbtn" value="Save" />&nbsp;&nbsp;<input id="cancelbutton" 
 		name="cancelbutton" type="button" class="formbtn" value="Cancel" 
-		onclick="history.back();"/> <?php if (isset($id) && $a_suppress[$id]): ?>
-		<input name="id" type="hidden" value="<?=$id;?>"/> <?php endif; ?>
+		onclick="history.back();"/>
 	</td>
 </tr>
 </table>

@@ -1,42 +1,56 @@
 <?php
+/*
+	nrpe2.inc
+	part of pfSense (https://www.pfSense.org/)
+	Copyright (C) 2009 Erik Kristensen <erik@erikkristensen.com>
+	Copyright (C) 2011-2013 Jim Pingle
+	Copyright (C) 2015 ESF, LLC
+	All rights reserved.
 
-/**
- * Author: Erik Kristensen
- * Email: erik@erikkristensen.com
- *
- * Developed for: pfSense.com
- *
- * Copyright (c) 2009, pfSense.com
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
- * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
- * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in thedocumentation and/or other materials provided with the distribution.
- * Neither the name of the <ORGANIZATION> nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- */
+	Redistribution and use in source and binary forms, with or without
+	modification, are permitted provided that the following conditions are met:
 
+	1. Redistributions of source code must retain the above copyright notice,
+	   this list of conditions and the following disclaimer.
+
+	2. Redistributions in binary form must reproduce the above copyright
+	   notice, this list of conditions and the following disclaimer in the
+	   documentation and/or other materials provided with the distribution.
+
+	THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+	INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+	AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+	AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+	OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+	SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+	INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+	CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+	ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+	POSSIBILITY OF SUCH DAMAGE.
+*/
 require_once('filter.inc');
 
-if (substr(trim(file_get_contents("/etc/version")),0,3) == "2.0") {
-	define('NRPE_BASE', '/usr/local');
-} else {
+global $pfs_version;
+$pfs_version = substr(trim(file_get_contents("/etc/version")), 0, 3);
+
+if ($pfs_version == "2.1" || $pfs_version == "2.2") {
 	define('NRPE_BASE', '/usr/pbi/nrpe-' . php_uname("m"));
+} else {
+	define('NRPE_BASE', '/usr/local');
 }
+
+if ($pfs_version == "2.1") {
+	define('NRPE_BINARY', NRPE_BASE . "/sbin/nrpe2");
+} else {
+	define('NRPE_BINARY', "/usr/local/sbin/nrpe2");
+}
+
 define('NRPE_CONFIG_DIR', NRPE_BASE . '/etc');
 define('NRPE_RCFILE', '/usr/local/etc/rc.d/nrpe2.sh');
 
 
 function nrpe2_custom_php_install_command() {
 	global $g, $config;
-	conf_mount_rw();
 	$NRPE_BASE = NRPE_BASE;
 	$NRPE_CONFIG_DIR = NRPE_CONFIG_DIR;
 
@@ -47,6 +61,7 @@ function nrpe2_custom_php_install_command() {
 		$config['installedpackages']['nrpe2']['config'][0]['server_address'] = $ip;
 		$config['installedpackages']['nrpe2']['config'][0]['server_port'] = 5666;
 		$config['installedpackages']['nrpe2']['config'][0]['allowed_hosts'] = "127.0.0.1";
+		$config['installedpackages']['nrpe2']['config'][0]['dont_blame_nrpe'] = "on";
 	}
 
 	if (!is_array($config['installedpackages']['nrpe2']['config'][0]['row'])) {
@@ -93,6 +108,7 @@ function nrpe2_custom_php_install_command() {
 		);
 	}
 	unlink_if_exists(NRPE_CONFIG_DIR . '/rc.d/nrpe2');
+	$nrpe2_binary = NRPE_BINARY;
 	$fd = fopen(NRPE_RCFILE, 'w');
 	$rc_file = <<<EOD
 #!/bin/sh
@@ -117,9 +133,9 @@ function nrpe2_custom_php_install_command() {
 
 nrpe2_enable=\${nrpe2_enable-"YES"}
 name="nrpe2"
-rcvar=`set_rcvar`
+rcvar="\${name}_enable"
 
-command="{$NRPE_BASE}/sbin/nrpe2"
+command="{$nrpe2_binary}"
 command_args="-d"
 extra_commands="reload"
 
@@ -142,14 +158,6 @@ EOD;
 	fclose($fd);
 	chmod(NRPE_RCFILE, 0755);
 
-	conf_mount_ro();
-}
-
-function nrpe2_custom_php_deinstall_command() {
-	global $g, $config;
-	conf_mount_rw();
-
-	conf_mount_ro();
 }
 
 function nrpe2_custom_php_write_config() {
@@ -169,37 +177,44 @@ function nrpe2_custom_php_write_config() {
 	$commands = implode($cmds);
 
 	$server_port = $config['installedpackages']['nrpe2']['config'][0]['server_port'];
-	$server_address = $config['installedpackages']['nrpe2']['config'][0]['server_address'];
 	$allowed_hosts = $config['installedpackages']['nrpe2']['config'][0]['allowed_hosts'];
+	$dont_blame_nrpe = $config['installedpackages']['nrpe2']['config'][0]['dont_blame_nrpe'];
+	if ($config['installedpackages']['nrpe2']['config'][0]['dont_blame_nrpe'] == "on") {
+		$dont_blame_nrpe = 1;
+	} else {
+		$dont_blame_nrpe = 0;
+	}
 
 	$fd = fopen(NRPE_CONFIG_DIR . '/nrpe.cfg', 'w');
 	$nrpe_cfg = <<<EOD
 log_facility=daemon
 pid_file=/var/run/nrpe2.pid
 server_port={$server_port}
-server_address={$server_address}
 nrpe_user=nagios
 nrpe_group=nagios
 allowed_hosts={$allowed_hosts}
-dont_blame_nrpe=0
+dont_blame_nrpe={$dont_blame_nrpe}
 debug=0
 command_timeout=60
 connection_timeout=300
 {$commands}
 EOD;
+	if (defined($config['installedpackages']['nrpe2']['config'][0]['server_address'])) {
+		$server_address = $config['installedpackages']['nrpe2']['config'][0]['server_address'];
+		$nrpe_cfg .= "server_address={$server_address}";
+	}
 	fwrite($fd, $nrpe_cfg);
 	fclose($fd);
 	conf_mount_ro();
 }
 
 function nrpe2_custom_php_service() {
-	global $g, $config;
+	global $config;
 
 	if ($config['installedpackages']['nrpe2']['config'][0]['enabled'] == "on") {
-		exec(NRPE_RCFILE . " restart");
-	}
-	else {
-		exec(NRPE_RCFILE . " stop");
+		restart_service("nrpe2");
+	} else {
+		stop_service("nrpe2");
 	}
 }
 

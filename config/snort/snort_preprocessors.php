@@ -6,7 +6,7 @@
  * Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>.
  * Copyright (C) 2008-2009 Robert Zelaya.
  * Copyright (C) 2011-2012 Ermal Luci
- * Copyright (C) 2013 Bill Meeks
+ * Copyright (C) 2013, 2014 Bill Meeks
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,9 +38,11 @@ require_once("/usr/local/pkg/snort/snort.inc");
 global $g, $rebuild_rules;
 $snortlogdir = SNORTLOGDIR;
 
-$id = $_GET['id'];
-if (isset($_POST['id']))
+if (isset($_POST['id']) && is_numericint($_POST['id']))
 	$id = $_POST['id'];
+elseif (isset($_GET['id']) && is_numericint($_GET['id']))
+	$id = htmlspecialchars($_GET['id']);
+
 if (is_null($id)) {
         header("Location: /snort/snort_interfaces.php");
         exit;
@@ -66,6 +68,8 @@ if (!is_array($config['installedpackages']['snortglobal']['rule'][$id]['ftp_clie
 $a_nat = &$config['installedpackages']['snortglobal']['rule'];
 
 $vrt_enabled = $config['installedpackages']['snortglobal']['snortdownload'];
+
+// Calculate the "next engine ID" to use for the multi-config engine arrays
 $frag3_engine_next_id = count($a_nat[$id]['frag3_engine']['item']);
 $stream5_tcp_engine_next_id = count($a_nat[$id]['stream5_tcp_engine']['item']);
 $http_inspect_engine_next_id = count($a_nat[$id]['http_inspect_engine']['item']);
@@ -73,169 +77,20 @@ $ftp_server_engine_next_id = count($a_nat[$id]['ftp_server_engine']['item']);
 $ftp_client_engine_next_id = count($a_nat[$id]['ftp_client_engine']['item']);
 
 $pconfig = array();
-if (isset($id) && $a_nat[$id]) {
+if (isset($id) && isset($a_nat[$id])) {
 	$pconfig = $a_nat[$id];
 
-	/* Get current values from config for page form fields */
-	$pconfig['perform_stat'] = $a_nat[$id]['perform_stat'];
-	$pconfig['host_attribute_table'] = $a_nat[$id]['host_attribute_table'];
-	$pconfig['host_attribute_data'] = $a_nat[$id]['host_attribute_data'];
-	$pconfig['max_attribute_hosts'] = $a_nat[$id]['max_attribute_hosts'];
-	$pconfig['max_attribute_services_per_host'] = $a_nat[$id]['max_attribute_services_per_host'];
-	$pconfig['max_paf'] = $a_nat[$id]['max_paf'];
-	$pconfig['other_preprocs'] = $a_nat[$id]['other_preprocs'];
-	$pconfig['ftp_preprocessor'] = $a_nat[$id]['ftp_preprocessor'];
-	$pconfig['ftp_telnet_inspection_type'] = $a_nat[$id]['ftp_telnet_inspection_type'];
-	$pconfig['ftp_telnet_alert_encrypted'] = $a_nat[$id]['ftp_telnet_alert_encrypted'];
-	$pconfig['ftp_telnet_check_encrypted'] = $a_nat[$id]['ftp_telnet_check_encrypted'];
-	$pconfig['ftp_telnet_normalize'] = $a_nat[$id]['ftp_telnet_normalize'];
-	$pconfig['ftp_telnet_detect_anomalies'] = $a_nat[$id]['ftp_telnet_detect_anomalies'];
-	$pconfig['ftp_telnet_ayt_attack_threshold'] = $a_nat[$id]['ftp_telnet_ayt_attack_threshold'];
-	$pconfig['smtp_preprocessor'] = $a_nat[$id]['smtp_preprocessor'];
-	$pconfig['sf_portscan'] = $a_nat[$id]['sf_portscan'];
-	$pconfig['pscan_protocol'] = $a_nat[$id]['pscan_protocol'];
-	$pconfig['pscan_type'] = $a_nat[$id]['pscan_type'];
-	$pconfig['pscan_sense_level'] = $a_nat[$id]['pscan_sense_level'];
-	$pconfig['pscan_memcap'] = $a_nat[$id]['pscan_memcap'];
-	$pconfig['pscan_ignore_scanners'] = $a_nat[$id]['pscan_ignore_scanners'];
-	$pconfig['dce_rpc_2'] = $a_nat[$id]['dce_rpc_2'];
-	$pconfig['dns_preprocessor'] = $a_nat[$id]['dns_preprocessor'];
-	$pconfig['sensitive_data'] = $a_nat[$id]['sensitive_data'];
-	$pconfig['sdf_alert_data_type'] = $a_nat[$id]['sdf_alert_data_type'];
-	$pconfig['sdf_alert_threshold'] = $a_nat[$id]['sdf_alert_threshold'];
-	$pconfig['sdf_mask_output'] = $a_nat[$id]['sdf_mask_output'];
-	$pconfig['ssl_preproc'] = $a_nat[$id]['ssl_preproc'];
-	$pconfig['pop_preproc'] = $a_nat[$id]['pop_preproc'];
-	$pconfig['imap_preproc'] = $a_nat[$id]['imap_preproc'];
-	$pconfig['sip_preproc'] = $a_nat[$id]['sip_preproc'];
-	$pconfig['dnp3_preproc'] = $a_nat[$id]['dnp3_preproc'];
-	$pconfig['modbus_preproc'] = $a_nat[$id]['modbus_preproc'];
-	$pconfig['gtp_preproc'] = $a_nat[$id]['gtp_preproc'];
-	$pconfig['ssh_preproc'] = $a_nat[$id]['ssh_preproc'];
-	$pconfig['preproc_auto_rule_disable'] = $a_nat[$id]['preproc_auto_rule_disable'];
-	$pconfig['protect_preproc_rules'] = $a_nat[$id]['protect_preproc_rules'];
-
-	// Frag3 global settings
-	$pconfig['frag3_detection'] = $a_nat[$id]['frag3_detection'];
-	$pconfig['frag3_max_frags'] = $a_nat[$id]['frag3_max_frags'];
-	$pconfig['frag3_memcap'] = $a_nat[$id]['frag3_memcap'];
-
-	// See if new Frag3 engine array is configured and use it;
-	// otherwise create a default engine configuration.
-	if (empty($pconfig['frag3_engine']['item'])) {
-		$default = array( "name" => "default", "bind_to" => "all", "policy" => "bsd", 
-				"timeout" => 60, "min_ttl" => 1, "detect_anomalies" => "on", 
-				"overlap_limit" => 0, "min_frag_len" => 0 );
+	// Initialize multiple config engine arrays for supported preprocessors if necessary
+	if (!is_array($pconfig['frag3_engine']['item']))
 		$pconfig['frag3_engine']['item'] = array();
-		$pconfig['frag3_engine']['item'][] = $default;
-		if (!is_array($a_nat[$id]['frag3_engine']['item']))
-			$a_nat[$id]['frag3_engine']['item'] = array();
-		$a_nat[$id]['frag3_engine']['item'][] = $default;
-		write_config();
-		$frag3_engine_next_id++;
-	}
-	else
-		$pconfig['frag3_engine'] = $a_nat[$id]['frag3_engine'];
-
-	// Stream5 global settings
-	$pconfig['stream5_reassembly'] = $a_nat[$id]['stream5_reassembly'];
-	$pconfig['stream5_flush_on_alert'] = $a_nat[$id]['stream5_flush_on_alert'];
-	$pconfig['stream5_prune_log_max'] = $a_nat[$id]['stream5_prune_log_max'];
-	$pconfig['stream5_mem_cap'] = $a_nat[$id]['stream5_mem_cap'];
-	$pconfig['stream5_track_tcp'] = $a_nat[$id]['stream5_track_tcp'];
-	$pconfig['stream5_max_tcp'] = $a_nat[$id]['stream5_max_tcp'];
-	$pconfig['stream5_track_udp'] = $a_nat[$id]['stream5_track_udp'];
-	$pconfig['stream5_max_udp'] = $a_nat[$id]['stream5_max_udp'];
-	$pconfig['stream5_udp_timeout'] = $a_nat[$id]['stream5_udp_timeout'];
-	$pconfig['stream5_track_icmp'] = $a_nat[$id]['stream5_track_icmp'];
-	$pconfig['stream5_max_icmp'] = $a_nat[$id]['stream5_max_icmp'];
-	$pconfig['stream5_icmp_timeout'] = $a_nat[$id]['stream5_icmp_timeout'];
-
-	// See if new Stream5 engine array is configured and use it;
-	// otherwise create a default engine configuration.
-	if (empty($pconfig['stream5_tcp_engine']['item'])) {
-		$default = array( "name" => "default", "bind_to" => "all", "policy" => "bsd", "timeout" => 30, 
-				"max_queued_bytes" => 1048576, "detect_anomalies" => "off", "overlap_limit" => 0, 
-				"max_queued_segs" => 2621, "require_3whs" => "off", "startup_3whs_timeout" => 0, 
-				"no_reassemble_async" => "off", "max_window" => 0, "use_static_footprint_sizes" => "off", 
-				"check_session_hijacking" => "off", "dont_store_lg_pkts" => "off", "ports_client" => "default", 
-				"ports_both" => "default", "ports_server" => "none" );
+	if (!is_array($pconfig['stream5_tcp_engine']['item']))
 		$pconfig['stream5_tcp_engine']['item'] = array();
-		$pconfig['stream5_tcp_engine']['item'][] = $default;
-		if (!is_array($a_nat[$id]['stream5_tcp_engine']['item']))
-			$a_nat[$id]['stream5_tcp_engine']['item'] = array();
-		$a_nat[$id]['stream5_tcp_engine']['item'][] = $default;
-		write_config();
-		$stream5_tcp_engine_next_id++;
-	}
-	else
-		$pconfig['stream5_tcp_engine'] = $a_nat[$id]['stream5_tcp_engine'];
-
-	// HTTP_INSPECT global settings
-	$pconfig['http_inspect'] = $a_nat[$id]['http_inspect'];
-	$pconfig['http_inspect_memcap'] = $a_nat[$id]['http_inspect_memcap'];
-	$pconfig['http_inspect_proxy_alert'] = $a_nat[$id]['http_inspect_proxy_alert'];
-	$pconfig['http_inspect_max_gzip_mem'] = $a_nat[$id]['http_inspect_max_gzip_mem'];
-
-	// See if new HTTP_INSPECT engine array is configured and use it;
-	// otherwise create a default engine configuration.
-	if (empty($pconfig['http_inspect_engine']['item'])) {
-		$default = array( "name" => "default", "bind_to" => "all", "server_profile" => "all", "enable_xff" => "off", 
-				"log_uri" => "off", "log_hostname" => "off", "server_flow_depth" => 65535, "enable_cookie" => "on", 
-				"client_flow_depth" => 1460, "extended_response_inspection" => "on", "no_alerts" => "off", 
-				"unlimited_decompress" => "on", "inspect_gzip" => "on", "normalize_cookies" =>"on", 
-				"normalize_headers" => "on", "normalize_utf" => "on", "normalize_javascript" => "on", 
-				"allow_proxy_use" => "off", "inspect_uri_only" => "off", "max_javascript_whitespaces" => 200,
-				"post_depth" => -1, "max_headers" => 0, "max_spaces" => 0, "max_header_length" => 0, "ports" => "default" );
+	if (!is_array($pconfig['http_inspect_engine']['item']))
 		$pconfig['http_inspect_engine']['item'] = array();
-		$pconfig['http_inspect_engine']['item'][] = $default;
-		if (!is_array($a_nat[$id]['http_inspect_engine']['item']))
-			$a_nat[$id]['http_inspect_engine']['item'] = array();
-		$a_nat[$id]['http_inspect_engine']['item'][] = $default;
-		write_config();
-		$http_inspect_engine_next_id++;
-	}
-	else
-		$pconfig['http_inspect_engine'] = $a_nat[$id]['http_inspect_engine'];
-
-	// See if new FTP client engine array is configured and use it;
-	// otherwise create a default engine configuration..
-	if (empty($pconfig['ftp_client_engine']['item'])) {
-		$default = array( "name" => "default", "bind_to" => "all", "max_resp_len" => 256, 
-				  "telnet_cmds" => "no", "ignore_telnet_erase_cmds" => "yes", 
-				  "bounce" => "yes", "bounce_to_net" => "", "bounce_to_port" => "" );
-		$pconfig['ftp_client_engine']['item'] = array();
-		$pconfig['ftp_client_engine']['item'][] = $default;
-		if (!is_array($a_nat[$id]['ftp_client_engine']['item']))
-			$a_nat[$id]['ftp_client_engine']['item'] = array();
-		$a_nat[$id]['ftp_client_engine']['item'][] = $default;
-		write_config();
-		$ftp_client_engine_next_id++;
-	}
-	else
-		$pconfig['ftp_client_engine'] = $a_nat[$id]['ftp_client_engine'];
-
-	// See if new FTP server engine array is configured and use it;
-	// otherwise create a default engine configuration..
-	if (empty($pconfig['ftp_server_engine']['item'])) {
-		$default = array( "name" => "default", "bind_to" => "all", "ports" => "default", 
-				  "telnet_cmds" => "no", "ignore_telnet_erase_cmds" => "yes", 
-				  "ignore_data_chan" => "no", "def_max_param_len" => 100 );
+	if (!is_array($pconfig['ftp_server_engine']['item']))
 		$pconfig['ftp_server_engine']['item'] = array();
-		$pconfig['ftp_server_engine']['item'][] = $default;
-		if (!is_array($a_nat[$id]['ftp_server_engine']['item']))
-			$a_nat[$id]['ftp_server_engine']['item'] = array();
-		$a_nat[$id]['ftp_server_engine']['item'][] = $default;
-		write_config();
-		$ftp_server_engine_next_id++;
-	}
-	else
-		$pconfig['ftp_server_engine'] = $a_nat[$id]['ftp_server_engine'];
-
-	/* If not using the Snort VRT rules, then disable */
-	/* the Sensitive Data (sdf) preprocessor.         */
-	if ($vrt_enabled == "off")
-		$pconfig['sensitive_data'] = "off";
+	if (!is_array($pconfig['ftp_client_engine']['item']))
+		$pconfig['ftp_client_engine']['item'] = array();
 
 	/************************************************************/
 	/* To keep new users from shooting themselves in the foot   */
@@ -264,24 +119,74 @@ if (isset($id) && $a_nat[$id]) {
 		$pconfig['ftp_telnet_detect_anomalies'] = 'on';
 	if (empty($pconfig['ftp_telnet_ayt_attack_threshold']) && $pconfig['ftp_telnet_ayt_attack_threshold'] <> 0)
 		$pconfig['ftp_telnet_ayt_attack_threshold'] = '20';
+
 	if (empty($pconfig['sdf_alert_data_type']))
 		$pconfig['sdf_alert_data_type'] = "Credit Card,Email Addresses,U.S. Phone Numbers,U.S. Social Security Numbers";
 	if (empty($pconfig['sdf_alert_threshold']))
 		$pconfig['sdf_alert_threshold'] = '25';
 	if (empty($pconfig['sdf_mask_output']))
 		$pconfig['sdf_mask_output'] = 'off';
+
 	if (empty($pconfig['smtp_preprocessor']))
 		$pconfig['smtp_preprocessor'] = 'on';
+	if (empty($pconfig['smtp_memcap']))
+		$pconfig['smtp_memcap'] = "838860";
+	if (empty($pconfig['smtp_max_mime_mem']))
+		$pconfig['smtp_max_mime_mem'] = "838860";
+	if (empty($pconfig['smtp_b64_decode_depth']))
+		$pconfig['smtp_b64_decode_depth'] = "0";
+	if (empty($pconfig['smtp_qp_decode_depth']))
+		$pconfig['smtp_qp_decode_depth'] = "0";
+	if (empty($pconfig['smtp_bitenc_decode_depth']))
+		$pconfig['smtp_bitenc_decode_depth'] = "0";
+	if (empty($pconfig['smtp_uu_decode_depth']))
+		$pconfig['smtp_uu_decode_depth'] = "0";
+	if (empty($pconfig['smtp_email_hdrs_log_depth']) && $pconfig['smtp_email_hdrs_log_depth'] != '0')
+		$pconfig['smtp_email_hdrs_log_depth'] = "1464";
+	if (empty($pconfig['smtp_ignore_tls_data']))
+		$pconfig['smtp_ignore_tls_data'] = 'on';
+	if (empty($pconfig['smtp_log_mail_from']))
+		$pconfig['smtp_log_mail_from'] = 'on';
+	if (empty($pconfig['smtp_log_rcpt_to']))
+		$pconfig['smtp_log_rcpt_to'] = 'on';
+	if (empty($pconfig['smtp_log_filename']))
+		$pconfig['smtp_log_filename'] = 'on';
+	if (empty($pconfig['smtp_log_email_hdrs']))
+		$pconfig['smtp_log_email_hdrs'] = 'on';
+
 	if (empty($pconfig['dce_rpc_2']))
 		$pconfig['dce_rpc_2'] = 'on';
 	if (empty($pconfig['dns_preprocessor']))
 		$pconfig['dns_preprocessor'] = 'on';
 	if (empty($pconfig['ssl_preproc']))
 		$pconfig['ssl_preproc'] = 'on';
+
 	if (empty($pconfig['pop_preproc']))
 		$pconfig['pop_preproc'] = 'on';
+	if (empty($pconfig['pop_memcap']))
+		$pconfig['pop_memcap'] = "838860";
+	if (empty($pconfig['pop_b64_decode_depth']))
+		$pconfig['pop_b64_decode_depth'] = "0";
+	if (empty($pconfig['pop_qp_decode_depth']))
+		$pconfig['pop_qp_decode_depth'] = "0";
+	if (empty($pconfig['pop_bitenc_decode_depth']))
+		$pconfig['pop_bitenc_decode_depth'] = "0";
+	if (empty($pconfig['pop_uu_decode_depth']))
+		$pconfig['pop_uu_decode_depth'] = "0";
+
 	if (empty($pconfig['imap_preproc']))
 		$pconfig['imap_preproc'] = 'on';
+	if (empty($pconfig['imap_memcap']))
+		$pconfig['imap_memcap'] = "838860";
+	if (empty($pconfig['imap_b64_decode_depth']))
+		$pconfig['imap_b64_decode_depth'] = "0";
+	if (empty($pconfig['imap_qp_decode_depth']))
+		$pconfig['imap_qp_decode_depth'] = "0";
+	if (empty($pconfig['imap_bitenc_decode_depth']))
+		$pconfig['imap_bitenc_decode_depth'] = "0";
+	if (empty($pconfig['imap_uu_decode_depth']))
+		$pconfig['imap_uu_decode_depth'] = "0";
+
 	if (empty($pconfig['sip_preproc']))
 		$pconfig['sip_preproc'] = 'on';
 	if (empty($pconfig['other_preprocs']))
@@ -340,36 +245,66 @@ if (isset($id) && $a_nat[$id]) {
 		$pconfig['pscan_sense_level'] = 'medium';
 }
 
+$if_friendly = convert_friendly_interface_to_friendly_descr($a_nat[$id]['interface']);
+
 /* Define the "disabled_preproc_rules.log" file for this interface */
-$iface = snort_get_friendly_interface($pconfig['interface']);
-$disabled_rules_log = "{$snortlogdir}/{$iface}_disabled_preproc_rules.log";
-
-if ($_GET['act'] && isset($_GET['eng_id'])) {
-
-	$natent = array();
-	$natent = $pconfig;
-
-	if ($_GET['act'] == "del_frag3")
-		unset($natent['frag3_engine']['item'][$_GET['eng_id']]);
-	elseif ($_GET['act'] == "del_stream5_tcp")
-		unset($natent['stream5_tcp_engine']['item'][$_GET['eng_id']]);
-	elseif ($_GET['act'] == "del_http_inspect")
-		unset($natent['http_inspect_engine']['item'][$_GET['eng_id']]);
-	elseif ($_GET['act'] == "del_ftp_server")
-		unset($natent['ftp_server_engine']['item'][$_GET['eng_id']]);
-
-	if (isset($id) && $a_nat[$id]) {
-		$a_nat[$id] = $natent;
-		write_config();
-	}
-
-	header("Location: snort_preprocessors.php?id=$id");
-	exit;
-}
+$disabled_rules_log = "{$if_friendly}_disabled_preproc_rules.log";
 
 // Check for returned "selected alias" if action is import
 if ($_GET['act'] == "import" && isset($_GET['varname']) && !empty($_GET['varvalue'])) {
-		$pconfig[$_GET['varname']] = $_GET['varvalue'];
+
+	// Retrieve previously typed values we passed to SELECT ALIAS page
+	$pconfig['sf_portscan'] = htmlspecialchars($_GET['sf_portscan'])? 'on' : 'off';
+	$pconfig['pscan_ignore_scanners'] = htmlspecialchars($_GET['pscan_ignore_scanners']);
+	$pconfig['pscan_protocol'] = htmlspecialchars($_GET['pscan_protocol']);
+	$pconfig['pscan_type'] = htmlspecialchars($_GET['pscan_type']);
+	$pconfig['pscan_memcap'] = htmlspecialchars($_GET['pscan_memcap']);
+	$pconfig['pscan_sense_level'] = htmlspecialchars($_GET['pscan_sense_level']);
+
+	// Now retrieve the "selected alias" returned from SELECT ALIAS page
+	$pconfig[$_GET['varname']] = htmlspecialchars($_GET['varvalue']);
+}
+
+// Handle deleting of any of the multiple configuration engines
+if ($_POST['del_http_inspect']) {
+	if (isset($_POST['eng_id']) && isset($id) && isset($a_nat[$id])) {
+		unset($a_nat[$id]['http_inspect_engine']['item'][$_POST['eng_id']]);
+		write_config("Snort pkg: deleted http_inspect engine for {$a_nat[$id]['interface']}.");
+		header("Location: snort_preprocessors.php?id=$id#httpinspect_row");
+		exit;
+	}
+}
+elseif ($_POST['del_frag3']) {
+	if (isset($_POST['eng_id']) && isset($id) && isset($a_nat[$id])) {
+		unset($a_nat[$id]['frag3_engine']['item'][$_POST['eng_id']]);
+		write_config("Snort pkg: deleted frag3 engine for {$a_nat[$id]['interface']}.");
+		header("Location: snort_preprocessors.php?id=$id#frag3_row");
+		exit;
+	}
+}
+elseif ($_POST['del_stream5_tcp']) {
+	if (isset($_POST['eng_id']) && isset($id) && isset($a_nat[$id])) {
+		unset($a_nat[$id]['stream5_tcp_engine']['item'][$_POST['eng_id']]);
+		write_config("Snort pkg: deleted stream5 engine for {$a_nat[$id]['interface']}.");
+		header("Location: snort_preprocessors.php?id=$id#stream5_row");
+		exit;
+	}
+}
+elseif ($_POST['del_ftp_client']) {
+	if (isset($_POST['eng_id']) && isset($id) && isset($a_nat[$id])) {
+		unset($a_nat[$id]['ftp_client_engine']['item'][$_POST['eng_id']]);
+		write_config("Snort pkg: deleted ftp_client engine for {$a_nat[$id]['interface']}.");
+		header("Location: snort_preprocessors.php?id=$id#ftp_telnet_row");
+		exit;
+	}
+}
+elseif ($_POST['del_ftp_server']) {
+	if (isset($_POST['eng_id']) && isset($id) && isset($a_nat[$id])) {
+		unset($a_nat[$id]['ftp_server_engine']['item'][$_POST['eng_id']]);
+		write_config("Snort pkg: deleted ftp_server engine for {$a_nat[$id]['interface']}.");
+		header("Location: snort_preprocessors.php?id=$id#ftp_telnet_row");
+		exit;
+	}
 }
 
 if ($_POST['ResetAll']) {
@@ -405,6 +340,23 @@ if ($_POST['ResetAll']) {
 	$pconfig['ftp_telnet_detect_anomalies'] = "on";
 	$pconfig['ftp_telnet_ayt_attack_threshold'] = "20";
 	$pconfig['smtp_preprocessor'] = "on";
+	$pconfig['smtp_memcap'] = "838860";
+	$pconfig['smtp_max_mime_mem'] = "838860";
+	$pconfig['smtp_b64_decode_depth'] = "0";
+	$pconfig['smtp_qp_decode_depth'] = "0";
+	$pconfig['smtp_bitenc_decode_depth'] = "0";
+	$pconfig['smtp_uu_decode_depth'] = "0";
+	$pconfig['smtp_email_hdrs_log_depth'] = "1464";
+	$pconfig['smtp_ignore_data'] = 'off';
+	$pconfig['smtp_ignore_tls_data'] = 'on';
+	$pconfig['smtp_log_mail_from'] = 'on';
+	$pconfig['smtp_log_rcpt_to'] = 'on';
+	$pconfig['smtp_log_filename'] = 'on';
+	$pconfig['smtp_log_email_hdrs'] = 'on';
+	$pconfig['appid_preproc'] = "off";
+	$pconfig['sf_appid_mem_cap'] = "256";
+	$pconfig['sf_appid_statslog'] = "on";
+	$pconfig['sf_appid_stats_period'] = "300";
 	$pconfig['sf_portscan'] = "off";
 	$pconfig['pscan_protocol'] = "all";
 	$pconfig['pscan_type'] = "all";
@@ -419,7 +371,17 @@ if ($_POST['ResetAll']) {
 	$pconfig['sdf_mask_output'] = "off";
 	$pconfig['ssl_preproc'] = "on";
 	$pconfig['pop_preproc'] = "on";
+	$pconfig['pop_memcap'] = "838860";
+	$pconfig['pop_b64_decode_depth'] = "0";
+	$pconfig['pop_qp_decode_depth'] = "0";
+	$pconfig['pop_bitenc_decode_depth'] = "0";
+	$pconfig['pop_uu_decode_depth'] = "0";
 	$pconfig['imap_preproc'] = "on";
+	$pconfig['imap_memcap'] = "838860";
+	$pconfig['imap_b64_decode_depth'] = "0";
+	$pconfig['imap_qp_decode_depth'] = "0";
+	$pconfig['imap_bitenc_decode_depth'] = "0";
+	$pconfig['imap_uu_decode_depth'] = "0";
 	$pconfig['sip_preproc'] = "on";
 	$pconfig['dnp3_preproc'] = "off";
 	$pconfig['modbus_preproc'] = "off";
@@ -434,7 +396,8 @@ if ($_POST['ResetAll']) {
 	/* Log a message at the top of the page to inform the user */
 	$savemsg = gettext("All preprocessor settings have been reset to their defaults.");
 }
-elseif ($_POST['Submit']) {
+
+if ($_POST['save']) {
 	$natent = array();
 	$natent = $pconfig;
 
@@ -444,6 +407,66 @@ elseif ($_POST['Submit']) {
 			$input_errors[] = gettext("The value for Sensitive_Data_Alert_Threshold must be between 1 and 65,535.");
 		if (empty($_POST['sdf_alert_data_type']))
 			$input_errors[] = gettext("You must select at least one sensitive data type to inspect for when Sensitive Data detection is enabled.");
+	}
+
+	// Validate POP3 parameter values if POP3 Decoder is enabled
+	if ($_POST['pop_preproc'] == 'on') {
+		if ($_POST['pop_memcap'] < 3276 || $_POST['pop_memcap'] > 104857600)
+			$input_errors[] = gettext("The value for POP3 Decoder Memory Cap must be between 3,276 and 104,857,600.");
+		if ($_POST['pop_b64_decode_depth'] < -1 || $_POST['pop_b64_decode_depth'] > 65535)
+			$input_errors[] = gettext("The value for POP3 Decoder Base64 Decode Depth must be between -1 and 65,535.");
+		if ($_POST['pop_qp_decode_depth'] < -1 || $_POST['pop_qp_decode_depth'] > 65535)
+			$input_errors[] = gettext("The value for POP3 Decoder Quoted-Printable (QP) Decode Depth must be between -1 and 65,535.");
+		if ($_POST['pop_bitenc_decode_depth'] < -1 || $_POST['pop_bitenc_decode_depth'] > 65535)
+			$input_errors[] = gettext("The value for POP3 Decoder Non-Encoded MIME Extraction Depth must be between -1 and 65,535.");
+		if ($_POST['pop_uu_decode_depth'] < -1 || $_POST['pop_uu_decode_depth'] > 65535)
+			$input_errors[] = gettext("The value for POP3 Decoder Unix-to-Unix (UU) Decode Depth must be between -1 and 65,535.");
+	}
+
+	// Validate IMAP parameter values if IMAP Decoder is enabled
+	if ($_POST['imap_preproc'] == 'on') {
+		if ($_POST['imap_memcap'] < 3276 || $_POST['imap_memcap'] > 104857600)
+			$input_errors[] = gettext("The value for IMAP Decoder Memory Cap must be between 3,276 and 104,857,600.");
+		if ($_POST['imap_b64_decode_depth'] < -1 || $_POST['imap_b64_decode_depth'] > 65535)
+			$input_errors[] = gettext("The value for IMAP Decoder Base64 Decode Depth must be between -1 and 65,535.");
+		if ($_POST['imap_qp_decode_depth'] < -1 || $_POST['imap_qp_decode_depth'] > 65535)
+			$input_errors[] = gettext("The value for IMAP Decoder Quoted-Printable (QP) Decode Depth must be between -1 and 65,535.");
+		if ($_POST['imap_bitenc_decode_depth'] < -1 || $_POST['imap_bitenc_decode_depth'] > 65535)
+			$input_errors[] = gettext("The value for IMAP Decoder Non-Encoded MIME Extraction Depth must be between -1 and 65,535.");
+		if ($_POST['imap_uu_decode_depth'] < -1 || $_POST['imap_uu_decode_depth'] > 65535)
+			$input_errors[] = gettext("The value for IMAP Decoder Unix-to-Unix (UU) Decode Depth must be between -1 and 65,535.");
+	}
+
+	// Validate SMTP parameter values if SMTP Decoder is enabled
+	if ($_POST['smtp_preprocessor'] == 'on') {
+		if ($_POST['smtp_memcap'] < 3276 || $_POST['smtp_memcap'] > 104857600)
+			$input_errors[] = gettext("The value for SMTP Decoder Memory Cap must be between 3,276 and 104,857,600.");
+		if ($_POST['smtp_max_mime_mem'] < 3276 || $_POST['smtp_max_mime_mem'] > 104857600)
+			$input_errors[] = gettext("The value for SMTP Decoder Maximum MIME Memory must be between 3,276 and 104,857,600.");
+		if ($_POST['smtp_b64_decode_depth'] < -1 || $_POST['smtp_b64_decode_depth'] > 65535)
+			$input_errors[] = gettext("The value for SMTP Decoder Base64 Decode Depth must be between -1 and 65,535.");
+		if ($_POST['smtp_qp_decode_depth'] < -1 || $_POST['smtp_qp_decode_depth'] > 65535)
+			$input_errors[] = gettext("The value for SMTP Decoder Quoted-Printable (QP) Decode Depth must be between -1 and 65,535.");
+		if ($_POST['smtp_bitenc_decode_depth'] < -1 || $_POST['smtp_bitenc_decode_depth'] > 65535)
+			$input_errors[] = gettext("The value for SMTP Decoder Non-Encoded MIME Extraction Depth must be between -1 and 65,535.");
+		if ($_POST['smtp_uu_decode_depth'] < -1 || $_POST['smtp_uu_decode_depth'] > 65535)
+			$input_errors[] = gettext("The value for SMTP Decoder Unix-to-Unix (UU) Decode Depth must be between -1 and 65,535.");
+		if ($_POST['smtp_email_hdrs_log_depth'] < 0 || $_POST['smtp_email_hdrs_log_depth'] > 20480)
+			$input_errors[] = gettext("The value for SMTP Decoder E-Mail Headers Log Depth must be between 0 and 20,480.");
+	}
+
+	// Validate AppID parameter values if AppID Detector is enabled
+	if ($_POST['appid_preproc'] == 'on') {
+		if ($_POST['sf_appid_mem_cap'] < 32 || $_POST['sf_appid_mem_cap'] > 3000)
+			$input_errors[] = gettext("The value for Application ID Memory Cap must be between 32 and 3000.");
+		if ($_POST['sf_appid_stats_period'] < 60 || $_POST['sf_appid_stats_period'] > 3600)
+			$input_errors[] = gettext("The value for Application ID Stats Period must be between 60 and 3600.");
+	}
+
+	// Validate Portscan Ignore_Scanners parameter
+	if ($_POST['sf_portscan'] == 'on' && is_alias($_POST['pscan_ignore_scanners'])) {
+		if (trim(filter_expand_alias($_POST["def_{$key}"])) == "")
+			$input_errors[] = gettext("FQDN aliases are not supported in Snort for the PORTSCAN IGNORE_SCANNERS parameter.");
 	}
 
 	/* if no errors write to conf */
@@ -471,6 +494,25 @@ elseif ($_POST['Submit']) {
 		if ($_POST['ftp_telnet_inspection_type'] != "") { $natent['ftp_telnet_inspection_type'] = $_POST['ftp_telnet_inspection_type']; }else{ $natent['ftp_telnet_inspection_type'] = "stateful"; }
 		if ($_POST['ftp_telnet_ayt_attack_threshold'] != "") { $natent['ftp_telnet_ayt_attack_threshold'] = $_POST['ftp_telnet_ayt_attack_threshold']; }else{ $natent['ftp_telnet_ayt_attack_threshold'] = "20"; }
 		if ($_POST['sdf_alert_threshold'] != "") { $natent['sdf_alert_threshold'] = $_POST['sdf_alert_threshold']; }else{ $natent['sdf_alert_threshold'] = "25"; }
+		if ($_POST['pop_memcap'] != "") { $natent['pop_memcap'] = $_POST['pop_memcap']; }else{ $natent['pop_memcap'] = "838860"; }
+		if ($_POST['pop_b64_decode_depth'] != "") { $natent['pop_b64_decode_depth'] = $_POST['pop_b64_decode_depth']; }else{ $natent['pop_b64_decode_depth'] = "0"; }
+		if ($_POST['pop_qp_decode_depth'] != "") { $natent['pop_qp_decode_depth'] = $_POST['pop_qp_decode_depth']; }else{ $natent['pop_qp_decode_depth'] = "0"; }
+		if ($_POST['pop_bitenc_decode_depth'] != "") { $natent['pop_bitenc_decode_depth'] = $_POST['pop_bitenc_decode_depth']; }else{ $natent['pop_bitenc_decode_depth'] = "0"; }
+		if ($_POST['pop_uu_decode_depth'] != "") { $natent['pop_uu_decode_depth'] = $_POST['pop_uu_decode_depth']; }else{ $natent['pop_uu_decode_depth'] = "0"; }
+		if ($_POST['imap_memcap'] != "") { $natent['imap_memcap'] = $_POST['imap_memcap']; }else{ $natent['imap_memcap'] = "838860"; }
+		if ($_POST['imap_b64_decode_depth'] != "") { $natent['imap_b64_decode_depth'] = $_POST['imap_b64_decode_depth']; }else{ $natent['imap_b64_decode_depth'] = "0"; }
+		if ($_POST['imap_qp_decode_depth'] != "") { $natent['imap_qp_decode_depth'] = $_POST['imap_qp_decode_depth']; }else{ $natent['imap_qp_decode_depth'] = "0"; }
+		if ($_POST['imap_bitenc_decode_depth'] != "") { $natent['imap_bitenc_decode_depth'] = $_POST['imap_bitenc_decode_depth']; }else{ $natent['imap_bitenc_decode_depth'] = "0"; }
+		if ($_POST['imap_uu_decode_depth'] != "") { $natent['imap_uu_decode_depth'] = $_POST['imap_uu_decode_depth']; }else{ $natent['imap_uu_decode_depth'] = "0"; }
+		if ($_POST['smtp_memcap'] != "") { $natent['smtp_memcap'] = $_POST['smtp_memcap']; }else{ $natent['smtp_memcap'] = "838860"; }
+		if ($_POST['smtp_max_mime_mem'] != "") { $natent['smtp_max_mime_mem'] = $_POST['smtp_max_mime_mem']; }else{ $natent['smtp_max_mime_mem'] = "838860"; }
+		if ($_POST['smtp_b64_decode_depth'] != "") { $natent['smtp_b64_decode_depth'] = $_POST['smtp_b64_decode_depth']; }else{ $natent['smtp_b64_decode_depth'] = "0"; }
+		if ($_POST['smtp_qp_decode_depth'] != "") { $natent['smtp_qp_decode_depth'] = $_POST['smtp_qp_decode_depth']; }else{ $natent['smtp_qp_decode_depth'] = "0"; }
+		if ($_POST['smtp_bitenc_decode_depth'] != "") { $natent['smtp_bitenc_decode_depth'] = $_POST['smtp_bitenc_decode_depth']; }else{ $natent['smtp_bitenc_decode_depth'] = "0"; }
+		if ($_POST['smtp_uu_decode_depth'] != "") { $natent['smtp_uu_decode_depth'] = $_POST['smtp_uu_decode_depth']; }else{ $natent['smtp_uu_decode_depth'] = "0"; }
+		if ($_POST['smtp_email_hdrs_log_depth'] != "") { $natent['smtp_email_hdrs_log_depth'] = $_POST['smtp_email_hdrs_log_depth']; }else{ $natent['smtp_email_hdrs_log_depth'] = "1464"; }
+		if ($_POST['sf_appid_mem_cap'] != "") { $natent['sf_appid_mem_cap'] = $_POST['sf_appid_mem_cap']; }else{ $natent['sf_appid_mem_cap'] = "256"; }
+		if ($_POST['sf_appid_stats_period'] != "") { $natent['sf_appid_stats_period'] = $_POST['sf_appid_stats_period']; }else{ $natent['sf_appid_stats_period'] = "300"; }
 
 		// Set SDF inspection types
 		$natent['sdf_alert_data_type'] = implode(",",$_POST['sdf_alert_data_type']);
@@ -486,6 +528,13 @@ elseif ($_POST['Submit']) {
 		$natent['ftp_telnet_normalize'] = $_POST['ftp_telnet_normalize'] ? 'on' : 'off';
 		$natent['ftp_telnet_detect_anomalies'] = $_POST['ftp_telnet_detect_anomalies'] ? 'on' : 'off';
 		$natent['smtp_preprocessor'] = $_POST['smtp_preprocessor'] ? 'on' : 'off';
+		$natent['smtp_ignore_data'] = $_POST['smtp_ignore_data'] ? 'on' : 'off';
+		$natent['smtp_ignore_tls_data'] = $_POST['smtp_ignore_tls_data'] ? 'on' : 'off';
+		$natent['smtp_log_mail_from'] = $_POST['smtp_log_mail_from'] ? 'on' : 'off';
+		$natent['smtp_log_rcpt_to'] = $_POST['smtp_log_rcpt_to'] ? 'on' : 'off';
+		$natent['smtp_log_filename'] = $_POST['smtp_log_filename'] ? 'on' : 'off';
+		$natent['smtp_log_email_hdrs'] = $_POST['smtp_log_email_hdrs'] ? 'on' : 'off';
+
 		$natent['sf_portscan'] = $_POST['sf_portscan'] ? 'on' : 'off';
 		$natent['dce_rpc_2'] = $_POST['dce_rpc_2'] ? 'on' : 'off';
 		$natent['dns_preprocessor'] = $_POST['dns_preprocessor'] ? 'on' : 'off';
@@ -508,25 +557,27 @@ elseif ($_POST['Submit']) {
 		$natent['stream5_track_tcp'] = $_POST['stream5_track_tcp'] ? 'on' : 'off';
 		$natent['stream5_track_udp'] = $_POST['stream5_track_udp'] ? 'on' : 'off';
 		$natent['stream5_track_icmp'] = $_POST['stream5_track_icmp'] ? 'on' : 'off';
+		$natent['appid_preproc'] = $_POST['appid_preproc'] ? 'on' : 'off';
+		$natent['sf_appid_statslog'] = $_POST['sf_appid_statslog'] ? 'on' : 'off';
 
-		/* If 'preproc_auto_rule_disable' is off, then clear log file */
-		if ($natent['preproc_auto_rule_disable'] == 'off')
-			@unlink("{$disabled_rules_log}");
-
-		if (isset($id) && $a_nat[$id]) {
+		if (isset($id) && isset($a_nat[$id])) {
 			$a_nat[$id] = $natent;
-			write_config();
+			write_config("Snort pkg: saved modified preprocessor settings for {$a_nat[$id]['interface']}.");
 		}
-
-		/* Set flag to rebuild rules for this interface  */
-		$rebuild_rules = true;
 
 		/*************************************************/
 		/* Update the snort.conf file and rebuild the    */
 		/* rules for this interface.                     */
 		/*************************************************/
+		$rebuild_rules = true;
+		conf_mount_rw();
 		snort_generate_conf($natent);
+		conf_mount_ro();
 		$rebuild_rules = false;
+
+		/* If 'preproc_auto_rule_disable' is off, then clear log file */
+		if ($natent['preproc_auto_rule_disable'] == 'off')
+			unlink_if_exists("{$snortlogdir}/{$disabled_rules_log}");
 
 		/*******************************************************/
 		/* Signal Snort to reload Host Attribute Table if one  */
@@ -535,6 +586,9 @@ elseif ($_POST['Submit']) {
 		if ($natent['host_attribute_table'] == "on" && 
 		    !empty($natent['host_attribute_data']))
 			snort_reload_config($natent, "SIGURG");
+
+		/* Sync to configured CARP slaves if any are enabled */
+		snort_sync_on_changes();
 
 		/* after click go to this page */
 		header( 'Expires: Sat, 26 Jul 1997 05:00:00 GMT' );
@@ -545,20 +599,25 @@ elseif ($_POST['Submit']) {
 		header("Location: snort_preprocessors.php?id=$id");
 		exit;
 	}
+	else
+		$pconfig = $_POST;
 }
-elseif ($_POST['btn_import']) {
+
+if ($_POST['btn_import']) {
 	if (is_uploaded_file($_FILES['host_attribute_file']['tmp_name'])) {
 		$data = file_get_contents($_FILES['host_attribute_file']['tmp_name']);
-		if ($data === false)
+		if ($data === false) {
 			$input_errors[] = gettext("Error uploading file {$_FILES['host_attribute_file']}!");
+			$pconfig = $_POST;
+		}
 		else {
-			if (isset($id) && $a_nat[$id]) {
+			if (isset($id) && isset($a_nat[$id])) {
 				$a_nat[$id]['host_attribute_table'] = "on";
 				$a_nat[$id]['host_attribute_data'] = base64_encode($data);
 				$pconfig['host_attribute_data'] = $a_nat[$id]['host_attribute_data'];
 				$a_nat[$id]['max_attribute_hosts'] = $pconfig['max_attribute_hosts'];
 				$a_nat[$id]['max_attribute_services_per_host'] = $pconfig['max_attribute_services_per_host'];
-				write_config();
+				write_config("Snort pkg: imported Host Attribute Table data for {$a_nat[$id]['interface']}.");
 			}
 			header( 'Expires: Sat, 26 Jul 1997 05:00:00 GMT' );
 			header( 'Last-Modified: ' . gmdate( 'D, d M Y H:i:s' ) . ' GMT' );
@@ -569,15 +628,18 @@ elseif ($_POST['btn_import']) {
 			exit;
 		}
 	}
-	else
+	else {
 		$input_errors[] = gettext("No filename specified for import!");
+		$pconfig = $_POST;
+	}
 }
-elseif ($_POST['btn_edit_hat']) {
-	if (isset($id) && $a_nat[$id]) {
+
+if ($_POST['btn_edit_hat']) {
+	if (isset($id) && isset($a_nat[$id])) {
 		$a_nat[$id]['host_attribute_table'] = "on";
 		$a_nat[$id]['max_attribute_hosts'] = $pconfig['max_attribute_hosts'];
 		$a_nat[$id]['max_attribute_services_per_host'] = $pconfig['max_attribute_services_per_host'];
-		write_config();
+		write_config("Snort pkg: modified Host Attribute Table data for {$a_nat[$id]['interface']}.");
 		header("Location: snort_edit_hat_data.php?id=$id");
 		exit;
 	}
@@ -588,26 +650,21 @@ elseif ($_POST['btn_edit_hat']) {
 if ($pconfig['host_attribute_table'] == 'on' && empty($pconfig['host_attribute_data']))
 	$input_errors[] = gettext("The Host Attribute Table option is enabled, but no Host Attribute data has been loaded.  Data may be entered manually or imported from a suitable file.");
 
-$if_friendly = snort_get_friendly_interface($pconfig['interface']);
 $pgtitle = gettext("Snort: Interface {$if_friendly} - Preprocessors and Flow");
 include_once("head.inc");
 ?>
 <body link="#0000CC" vlink="#0000CC" alink="#0000CC" onload="enable_change_all()">
 
-<?php include("fbegin.inc"); ?>
-<?php if($pfsense_stable == 'yes'){echo '<p class="pgtitle">' . $pgtitle . '</p>';}
+<?php include("fbegin.inc");
 
+/* Display Alert message */
+if ($input_errors) {
+	print_input_errors($input_errors);
+}
 
-	/* Display Alert message */
-
-	if ($input_errors) {
-		print_input_errors($input_errors); // TODO: add checks
-	}
-
-	if ($savemsg) {
-		print_info_box($savemsg);
-	}
-
+if ($savemsg) {
+	print_info_box($savemsg);
+}
 ?>
 
 <script type="text/javascript" src="/javascript/autosuggest.js">
@@ -615,8 +672,9 @@ include_once("head.inc");
 <script type="text/javascript" src="/javascript/suggestions.js">
 </script>
 
-<form action="snort_preprocessors.php" method="post"
-	enctype="multipart/form-data" name="iform" id="iform">
+<form action="snort_preprocessors.php" method="post" enctype="multipart/form-data" name="iform" id="iform">
+<input name="id" type="hidden" value="<?=$id;?>"/>
+<input name="eng_id" id="eng_id" type="hidden" value=""/>
 <table width="100%" border="0" cellpadding="0" cellspacing="0">
 <tr><td>
 <?php
@@ -624,23 +682,28 @@ include_once("head.inc");
 		$tab_array[0] = array(gettext("Snort Interfaces"), true, "/snort/snort_interfaces.php");
 		$tab_array[1] = array(gettext("Global Settings"), false, "/snort/snort_interfaces_global.php");
 		$tab_array[2] = array(gettext("Updates"), false, "/snort/snort_download_updates.php");
-		$tab_array[3] = array(gettext("Alerts"), false, "/snort/snort_alerts.php");
+		$tab_array[3] = array(gettext("Alerts"), false, "/snort/snort_alerts.php?instance={$id}");
 		$tab_array[4] = array(gettext("Blocked"), false, "/snort/snort_blocked.php");
-		$tab_array[5] = array(gettext("Whitelists"), false, "/snort/snort_interfaces_whitelist.php");
+		$tab_array[5] = array(gettext("Pass Lists"), false, "/snort/snort_passlist.php");
 		$tab_array[6] = array(gettext("Suppress"), false, "/snort/snort_interfaces_suppress.php");
-		$tab_array[7] = array(gettext("Sync"), false, "/pkg_edit.php?xml=snort/snort_sync.xml");
-		display_top_tabs($tab_array);
+		$tab_array[7] = array(gettext("IP Lists"), false, "/snort/snort_ip_list_mgmt.php");
+		$tab_array[8] = array(gettext("SID Mgmt"), false, "/snort/snort_sid_mgmt.php");
+		$tab_array[9] = array(gettext("Log Mgmt"), false, "/snort/snort_log_mgmt.php");
+		$tab_array[10] = array(gettext("Sync"), false, "/pkg_edit.php?xml=snort/snort_sync.xml");
+		display_top_tabs($tab_array, true);
 		echo '</td></tr>';
 		echo '<tr><td>';
 		$menu_iface=($if_friendly?substr($if_friendly,0,5)." ":"Iface ");
-        $tab_array = array();
-        $tab_array[] = array($menu_iface . gettext("Settings"), false, "/snort/snort_interfaces_edit.php?id={$id}");
-        $tab_array[] = array($menu_iface . gettext("Categories"), false, "/snort/snort_rulesets.php?id={$id}");
-        $tab_array[] = array($menu_iface . gettext("Rules"), false, "/snort/snort_rules.php?id={$id}");
-        $tab_array[] = array($menu_iface . gettext("Variables"), false, "/snort/snort_define_servers.php?id={$id}");
-        $tab_array[] = array($menu_iface . gettext("Preprocessors"), true, "/snort/snort_preprocessors.php?id={$id}");
-        $tab_array[] = array($menu_iface . gettext("Barnyard2"), false, "/snort/snort_barnyard.php?id={$id}");
-        display_top_tabs($tab_array);
+		$tab_array = array();
+		$tab_array[] = array($menu_iface . gettext("Settings"), false, "/snort/snort_interfaces_edit.php?id={$id}");
+		$tab_array[] = array($menu_iface . gettext("Categories"), false, "/snort/snort_rulesets.php?id={$id}");
+		$tab_array[] = array($menu_iface . gettext("Rules"), false, "/snort/snort_rules.php?id={$id}");
+		$tab_array[] = array($menu_iface . gettext("Variables"), false, "/snort/snort_define_servers.php?id={$id}");
+		$tab_array[] = array($menu_iface . gettext("Preprocs"), true, "/snort/snort_preprocessors.php?id={$id}");
+		$tab_array[] = array($menu_iface . gettext("Barnyard2"), false, "/snort/snort_barnyard.php?id={$id}");
+		$tab_array[] = array($menu_iface . gettext("IP Rep"), false, "/snort/snort_ip_reputation.php?id={$id}");
+		$tab_array[] = array($menu_iface . gettext("Logs"), false, "/snort/snort_interface_logs.php?id={$id}");
+		display_top_tabs($tab_array, true);
 ?>
 </td></tr>
 <tr><td><div id="mainarea">
@@ -659,14 +722,14 @@ include_once("head.inc");
 	<tr>
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable Performance Stats"); ?></td>
 		<td width="78%" class="vtable"><input name="perform_stat" type="checkbox" value="on" 
-			<?php if ($pconfig['perform_stat']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['perform_stat']=="on") echo "checked"; ?>/>
 			<?php echo gettext("Collect Performance Statistics for this interface."); ?></td>
 	</tr>
 	<tr>
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Protect Customized Preprocessor Rules"); ?></td>
 		<td width="78%" class="vtable"><input name="protect_preproc_rules" type="checkbox" value="on" 
 			<?php if ($pconfig['protect_preproc_rules']=="on") echo "checked "; 
-			if ($vrt_enabled <> 'on') echo "disabled"; ?>>
+			if ($vrt_enabled <> 'on') echo "disabled"; ?>/>
 			<?php echo gettext("Check this box if you maintain customized preprocessor text rules files for this interface."); ?>
 			<table width="100%" border="0" cellpadding="2" cellpadding="2">
 				<tr>
@@ -683,7 +746,7 @@ include_once("head.inc");
 	<tr>
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Auto Rule Disable"); ?></td>
 		<td width="78%" class="vtable"><input name="preproc_auto_rule_disable" type="checkbox" value="on" 
-			<?php if ($pconfig['preproc_auto_rule_disable']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['preproc_auto_rule_disable']=="on") echo "checked"; ?>/>
 			<?php echo gettext("Auto-disable text rules dependent on disabled preprocessors for this interface.  "); 
 			echo gettext("Default is ") . '<strong>' . gettext("Not Checked"); ?></strong>.<br/>
 			<table width="100%" border="0" cellpadding="2" cellpadding="2">
@@ -696,7 +759,7 @@ include_once("head.inc");
 					"disabled preprocessors, but can substantially compromise the level of protection by " .
 					"automatically disabling detection rules."); ?></td>
 				</tr>
-			<?php if (file_exists($disabled_rules_log) && filesize($disabled_rules_log) > 0): ?>
+			<?php if (file_exists("{$snortlogdir}/{$disabled_rules_log}") && filesize("{$snortlogdir}/{$disabled_rules_log}") > 0): ?>
 				<tr>
 					<td width="3%">&nbsp;</td>
 					<td class="vexpl"><input type="button" class="formbtn" value="View" onclick="wopen('snort_rules_edit.php?id=<?=$id;?>&openruleset=<?=$disabled_rules_log;?>','FileViewer',800,600);">
@@ -713,15 +776,15 @@ include_once("head.inc");
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable"); ?></td>
 		<td width="78%" class="vtable"><input name="host_attribute_table"
 			type="checkbox" value="on" id="host_attribute_table" onclick="host_attribute_table_enable_change();" 
-			<?php if ($pconfig['host_attribute_table']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['host_attribute_table']=="on") echo "checked"; ?>/>
 			<?php echo gettext("Use a Host Attribute Table file to auto-configure applicable preprocessors.  " .
 				"Default is "); ?><strong><?php echo gettext("Not Checked"); ?></strong>.</td>
 	</tr>
 	<tr id="host_attrib_table_data_row">
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Host Attribute Data"); ?></td>
 		<td width="78%" class="vtable"><strong><?php echo gettext("Import From File"); ?></strong><br/>
-			<input name="host_attribute_file" type="file" class="formfld file" value="on" id="host_attribute_file" size="40">&nbsp;&nbsp;
-			<input type="submit" name="btn_import" id="btn_import" value="Import" class="formbtn"><br/>
+			<input name="host_attribute_file" type="file" class="formfld file" value="on" id="host_attribute_file" size="40"/>&nbsp;&nbsp;
+			<input type="submit" name="btn_import" id="btn_import" value="Import" class="formbtn"/><br/>
 			<?php echo gettext("Choose the Host Attributes file to use for auto-configuration."); ?><br/><br/>
 			<span class="red"><strong><?php echo gettext("Warning: "); ?></strong></span>
 			<?php echo gettext("The Host Attributes file has a required format.  See the "); ?><a href="http://manual.snort.org/" target="_blank">
@@ -746,7 +809,7 @@ include_once("head.inc");
 		<table cellpadding="0" cellspacing="0">
 			<tr>
 				<td><input name="max_attribute_hosts" type="text" class="formfld unknown" id="max_attribute_hosts" size="9" 
-				value="<?=htmlspecialchars($pconfig['max_attribute_hosts']);?>">&nbsp;&nbsp;
+				value="<?=htmlspecialchars($pconfig['max_attribute_hosts']);?>"/>&nbsp;&nbsp;
 				<?php echo gettext("Max number of hosts to read from the Attribute Table.  Min is ") . 
 				"<strong>" . gettext("32") . "</strong>" . gettext(" and Max is ") . "<strong>" . 
 				gettext("524288") . "</strong>"; ?>.</td>
@@ -763,7 +826,7 @@ include_once("head.inc");
 		<table cellpadding="0" cellspacing="0">
 			<tr>
 				<td><input name="max_attribute_services_per_host" type="text" class="formfld unknown" id="max_attribute_services_per_host" size="9" 
-				value="<?=htmlspecialchars($pconfig['max_attribute_services_per_host']);?>">&nbsp;&nbsp;
+				value="<?=htmlspecialchars($pconfig['max_attribute_services_per_host']);?>"/>&nbsp;&nbsp;
 				<?php echo gettext("Max number of  per host services to read from the Attribute Table.  Min is ") . 
 				"<strong>" . gettext("1") . "</strong>" . gettext(" and Max is ") . "<strong>" . 
 				gettext("65535") . "</strong>"; ?>.</td>
@@ -797,7 +860,7 @@ include_once("head.inc");
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable"); ?></td>
 		<td width="78%" class="vtable"><input name="http_inspect" 
 			type="checkbox" value="on" id="http_inspect" onclick="http_inspect_enable_change();" 
-			<?php if ($pconfig['http_inspect']=="on" || empty($pconfig['http_inspect'])) echo "checked";?>>
+			<?php if ($pconfig['http_inspect']=="on" || empty($pconfig['http_inspect'])) echo "checked";?>/>
 			<?php echo gettext("Use HTTP Inspect to Normalize/Decode and detect HTTP traffic and protocol anomalies.  Default is ");?>
 			<strong><?php echo gettext("Checked"); ?></strong>.</td>
 	</tr>
@@ -805,7 +868,7 @@ include_once("head.inc");
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Proxy Alert"); ?></td>
 		<td width="78%" class="vtable"><input name="http_inspect_proxy_alert" 
 			type="checkbox" value="on" id="http_inspect_proxy_alert"  
-			<?php if ($pconfig['http_inspect_proxy_alert']=="on") echo "checked";?>>
+			<?php if ($pconfig['http_inspect_proxy_alert']=="on") echo "checked";?>/>
 			<?php echo gettext("Enable global alerting on HTTP server proxy usage.  Default is ");?>
 			<strong><?php echo gettext("Not Checked"); ?></strong>.<br/><br/><span class="red"><strong>
 			<?php echo gettext("Note: ") . "</strong></span>" . gettext("By adding Server Configurations below and enabling " . 
@@ -870,10 +933,10 @@ include_once("head.inc");
 					<td class="listt" align="right"><a href="snort_httpinspect_engine.php?id=<?=$id;?>&eng_id=<?=$f;?>">
 					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_e.gif"  
 					width="17" height="17" border="0" title="<?=gettext("Edit this server configuration");?>"></a>
-			<?php if ($v['bind_to'] <> "all") : ?> 
-					<a href="snort_preprocessors.php?id=<?=$id;?>&eng_id=<?=$f;?>&act=del_http_inspect" onclick="return confirm('Are you sure you want to delete this entry?');">
-					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_x.gif" width="17" height="17" border="0" 
-					title="<?=gettext("Delete this server configuration");?>"></a>
+			<?php if ($v['bind_to'] <> "all") : ?>
+					<input type="image" name="del_http_inspect[]" onclick="document.getElementById('eng_id').value='<?=$f;?>'; return confirm('Are you sure you want to delete this entry?');" 
+					src="/themes/<?=$g['theme'];?>/images/icons/icon_x.gif" width="17" height="17" border="0" 
+					title="<?=gettext("Delete this server configuration");?>"/>
 			<?php else : ?>
 					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_x_d.gif" width="17" height="17" border="0" 
 					title="<?=gettext("Default server configuration cannot be deleted");?>">
@@ -890,7 +953,7 @@ include_once("head.inc");
 	<tr>
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable");?></td>
 		<td width="78%" class="vtable"><input name="frag3_detection" type="checkbox" value="on" onclick="frag3_enable_change();" 
-		<?php if ($pconfig['frag3_detection']=="on") echo "checked";?>>
+		<?php if ($pconfig['frag3_detection']=="on") echo "checked";?>/>
 		<?php echo gettext("Use Frag3 Engine to detect IDS evasion attempts via target-based IP packet fragmentation.  Default is ") . 
 		"<strong>" . gettext("Checked") . "</strong>.";?></td>
 	</tr>
@@ -939,9 +1002,9 @@ include_once("head.inc");
 					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_e.gif"  
 					width="17" height="17" border="0" title="<?=gettext("Edit this engine configuration");?>"></a>
 			<?php if ($v['bind_to'] <> "all") : ?> 
-					<a href="snort_preprocessors.php?id=<?=$id;?>&eng_id=<?=$f;?>&act=del_frag3" onclick="return confirm('Are you sure you want to delete this entry?');">
-					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_x.gif" width="17" height="17" border="0" 
-					title="<?=gettext("Delete this engine configuration");?>"></a>
+					<input type="image" name="del_frag3[]" onclick="document.getElementById('eng_id').value='<?=$f;?>'; return confirm('Are you sure you want to delete this entry?');" 
+					src="/themes/<?=$g['theme'];?>/images/icons/icon_x.gif" width="17" height="17" border="0" 
+					title="<?=gettext("Delete this engine configuration");?>"/>
 			<?php else : ?>
 					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_x_d.gif" width="17" height="17" border="0" 
 					title="<?=gettext("Default engine configuration cannot be deleted");?>">
@@ -958,14 +1021,14 @@ include_once("head.inc");
 	<tr>
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable"); ?></td>
 		<td width="78%" class="vtable"><input name="stream5_reassembly" type="checkbox" value="on" onclick="stream5_enable_change();"  
-			<?php if ($pconfig['stream5_reassembly']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['stream5_reassembly']=="on") echo "checked"; ?>/>
 		<?php echo gettext("Use Stream5 session reassembly for TCP, UDP and/or ICMP traffic.  Default is ") . 
 		"<strong>" . gettext("Checked") . "</strong>"; ?>.</td>
 	</tr>
 	<tr id="stream5_flushonalert_row">
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Flush On Alert"); ?></td>
 		<td width="78%" class="vtable"><input name="stream5_flush_on_alert" type="checkbox" value="on"   
-			<?php if ($pconfig['stream5_flush_on_alert']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['stream5_flush_on_alert']=="on") echo "checked"; ?>/>
 		<?php echo gettext("Flush a TCP stream when an alert is generated on that stream.  Default is ") . 
 		"<strong>" . gettext("Not Checked") . "</strong><br/><span class=\"red\"><strong>" . 
 		gettext("Note:  ") . "</strong></span>" . gettext("This parameter is for backwards compatibility.");?></td>
@@ -1096,9 +1159,9 @@ include_once("head.inc");
 					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_e.gif"  
 					width="17" height="17" border="0" title="<?=gettext("Edit this TCP engine configuration");?>"></a>
 			<?php if ($v['bind_to'] <> "all") : ?> 
-					<a href="snort_preprocessors.php?id=<?=$id;?>&eng_id=<?=$f;?>&act=del_stream5_tcp" onclick="return confirm('Are you sure you want to delete this entry?');">
-					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_x.gif" width="17" height="17" border="0" 
-					title="<?=gettext("Delete this TCP engine configuration");?>"></a>
+					<input type="image" name="del_stream5_tcp[]" onclick="document.getElementById('eng_id').value='<?=$f;?>'; return confirm('Are you sure you want to delete this entry?');" 
+					src="/themes/<?=$g['theme'];?>/images/icons/icon_x.gif" width="17" height="17" border="0" 
+					title="<?=gettext("Delete this TCP engine configuration");?>"/>
 			<?php else : ?>
 					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_x_d.gif" width="17" height="17" border="0" 
 					title="<?=gettext("Default engine configuration cannot be deleted");?>">
@@ -1109,6 +1172,53 @@ include_once("head.inc");
 			</table>
 		</td>
 	</tr>
+
+	<tr>
+		<td colspan="2" valign="top" class="listtopic"><?php echo gettext("Application ID Detection"); ?></td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable"); ?></td>
+		<td width="78%" class="vtable"><input name="appid_preproc" onclick="appid_preproc_enable_change();" 
+			type="checkbox" value="on" id="appid_preproc"  
+			<?php if ($pconfig['appid_preproc']=="on") echo "checked"; ?>/>
+		<?php echo gettext("Use OpenAppID to detect various applications.  Default is ") . 
+		"<strong>" . gettext("Not Checked") . "</strong>"; ?>.</td>
+	</tr>
+	<tbody id="appid_rows">
+	<tr>
+		<td valign="top" class="vncell"><?php echo gettext("Memory Cap"); ?></td>
+		<td class="vtable">
+			<input name="sf_appid_mem_cap" type="text" class="formfld unknown" id="sf_appid_mem_cap" size="9" 
+			value="<?=htmlspecialchars($pconfig['sf_appid_mem_cap']);?>">
+			<?php echo gettext("Memory for App ID structures.  Min is ") . "<strong>" . gettext("32") . "</strong>" .
+			gettext(" (32 MB) and Max is ") . "<strong>" . gettext("3000") . "</strong>" .
+			gettext(" (3 GB) bytes.");?><br/>
+			<?php echo gettext("The memory cap in megabytes used by AppID internal structures " .
+			"in RAM. Default value is ") . "<strong>" . gettext("256") . "</strong>" . gettext(" (256 MB)."); ?><br/>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("AppID Stats Logging"); ?></td>
+		<td width="78%" class="vtable">
+			<input name="sf_appid_statslog" type="checkbox" value="on" id="sf_appid_statslog" 
+			<?php if ($pconfig['sf_appid_statslog']=="on") echo "checked"; ?>/>
+		<?php echo gettext("Enable OpenAppID statistics logging.  Default is ") . 
+		"<strong>" . gettext("Checked") . "</strong>" . gettext("."); ?><br/><br/>
+		<span class="red"><strong><?php echo gettext("Note: ") . "</strong></span>" . gettext("log size and retention limits for AppID Stats Logging") . 
+		gettext(" can be set on the ") . "<a href='/snort/snort_log_mgmt.php'>" . gettext("LOG MGMT") . "</a>" . gettext(" tab.");?> </td>
+	</tr>
+	<tr>
+		<td valign="top" class="vncell"><?php echo gettext("AppID Stats Period"); ?></td>
+		<td class="vtable">
+			<input name="sf_appid_stats_period" type="text" class="formfld unknown" id="sf_appid_stats_period" size="9" 
+			value="<?=htmlspecialchars($pconfig['sf_appid_stats_period']);?>">
+			<?php echo gettext("Bucket size in seconds for AppID stats.  Min is ") . "<strong>" . gettext("60") . "</strong>" .
+			gettext(" (1 minute) and Max is ") . "<strong>" . gettext("3600") . "</strong>" . gettext(" (1 hour).");?><br/>
+			<?php echo gettext("The bucket size in seconds used to collecxt AppID statistics. " .
+			"Default value is ") . "<strong>" . gettext("300") . "</strong>" . gettext(" (5 minutes)."); ?><br/>
+		</td>
+	</tr>
+	</tbody>
 	<tr>
 		<td colspan="2" valign="top" class="listtopic"><?php echo gettext("Portscan Detection"); ?></td>
 	</tr>
@@ -1116,7 +1226,7 @@ include_once("head.inc");
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable"); ?></td>
 		<td width="78%" class="vtable"><input name="sf_portscan" onclick="sf_portscan_enable_change();" 
 			type="checkbox" value="on" id="sf_portscan"   
-			<?php if ($pconfig['sf_portscan']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['sf_portscan']=="on") echo "checked"; ?>/>
 		<?php echo gettext("Use Portscan Detection to detect various types of port scans and sweeps.  Default is ") . 
 		"<strong>" . gettext("Not Checked") . "</strong>"; ?>.</td>
 	</tr>
@@ -1224,7 +1334,7 @@ include_once("head.inc");
 					value="<?=$pconfig['pscan_ignore_scanners'];?>" title="<?=trim(filter_expand_alias($pconfig['pscan_ignore_scanners']));?>">&nbsp;&nbsp;<?php echo gettext("Leave blank for default.  ") . 
 					gettext("Default value is ") . "<strong>" . gettext("\$HOME_NET") . "</strong>"; ?>.</td>
 					<td class="vexpl" align="right">
-						<input type="button" class="formbtns" value="Aliases" onclick="parent.location='snort_select_alias.php?id=<?=$id;?>&type=host|network&varname=pscan_ignore_scanners&act=import&multi_ip=yes&returl=<?=urlencode($_SERVER['PHP_SELF']);?>'"  
+						<input type="button" class="formbtns" value="Aliases" onclick="selectAlias();"  
 						title="<?php echo gettext("Select an existing IP alias");?>"/></td>
 				</tr>
 				<tr>
@@ -1261,14 +1371,14 @@ include_once("head.inc");
 	<tr id="ftp_telnet_row_encrypted_check">
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Check Encrypted Traffic"); ?></td>
 		<td width="78%" class="vtable"><input name="ftp_telnet_check_encrypted" type="checkbox" value="on" 
-			<?php if ($pconfig['ftp_telnet_check_encrypted']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['ftp_telnet_check_encrypted']=="on") echo "checked"; ?>/>
 		<?php echo gettext("Continue to check an encrypted session for subsequent command to cease encryption.  Default is ") . 
 		"<strong>" . gettext("Checked") . "</strong>"; ?>.</td>
 	</tr>
 	<tr id="ftp_telnet_row_encrypted_alert">
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Alert on Encrypted Commands"); ?></td>
 		<td width="78%" class="vtable"><input name="ftp_telnet_alert_encrypted" type="checkbox" value="on" 
-			<?php if ($pconfig['ftp_telnet_alert_encrypted']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['ftp_telnet_alert_encrypted']=="on") echo "checked"; ?>/>
 		<?php echo gettext("Alert on encrypted FTP and Telnet command channels.  Default is ") . 
 		"<strong>" . gettext("Not Checked") . "</strong>"; ?>.</td>
 	</tr>
@@ -1278,14 +1388,14 @@ include_once("head.inc");
 	<tr id="ftp_telnet_row_normalize">
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Normalization"); ?></td>
 		<td width="78%" class="vtable"><input name="ftp_telnet_normalize" type="checkbox" value="on" 
-			<?php if ($pconfig['ftp_telnet_normalize']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['ftp_telnet_normalize']=="on") echo "checked"; ?>/>
 		<?php echo gettext("Normalize Telnet traffic by eliminating Telnet escape sequences.  Default is ") . 
 		"<strong>" . gettext("Checked") . "</strong>"; ?>.</td>
 	</tr>
 	<tr id="ftp_telnet_row_detect_anomalies">
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Detect Anomalies"); ?></td>
 		<td width="78%" class="vtable"><input name="ftp_telnet_detect_anomalies" type="checkbox" value="on" 
-			<?php if ($pconfig['ftp_telnet_detect_anomalies']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['ftp_telnet_detect_anomalies']=="on") echo "checked"; ?>/>
 		<?php echo gettext("Alert on Telnet subnegotiation begin without corresponding subnegotiation end.  Default is ") . 
 		"<strong>" . gettext("Checked") . "</strong>"; ?>.</td>
 	</tr>
@@ -1331,9 +1441,9 @@ include_once("head.inc");
 					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_e.gif"  
 					width="17" height="17" border="0" title="<?=gettext("Edit this FTP client configuration");?>"></a>
 			<?php if ($v['bind_to'] <> "all") : ?> 
-					<a href="snort_preprocessors.php?id=<?=$id;?>&eng_id=<?=$f;?>&act=del_ftp_server" onclick="return confirm('Are you sure you want to delete this entry?');">
-					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_x.gif" width="17" height="17" border="0" 
-					title="<?=gettext("Delete this FTP client configuration");?>"></a>
+					<input type="image" name="del_ftp_client[]" onclick="document.getElementById('eng_id').value='<?=$f;?>'; return confirm('Are you sure you want to delete this entry?');" 
+					src="/themes/<?=$g['theme'];?>/images/icons/icon_x.gif" width="17" height="17" border="0" 
+					title="<?=gettext("Delete this FTP client configuration");?>"/>
 			<?php else : ?>
 					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_x_d.gif" width="17" height="17" border="0" 
 					title="<?=gettext("Default client configuration cannot be deleted");?>">
@@ -1373,9 +1483,9 @@ include_once("head.inc");
 					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_e.gif"  
 					width="17" height="17" border="0" title="<?=gettext("Edit this FTP server configuration");?>"></a>
 			<?php if ($v['bind_to'] <> "all") : ?> 
-					<a href="snort_preprocessors.php?id=<?=$id;?>&eng_id=<?=$f;?>&act=del_ftp_server" onclick="return confirm('Are you sure you want to delete this entry?');">
-					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_x.gif" width="17" height="17" border="0" 
-					title="<?=gettext("Delete this FTP server configuration");?>"></a>
+					<input type="image" name="del_ftp_server[]" onclick="document.getElementById('eng_id').value='<?=$f;?>'; return confirm('Are you sure you want to delete this entry?');" 
+					src="/themes/<?=$g['theme'];?>/images/icons/icon_x.gif" width="17" height="17" border="0" 
+					title="<?=gettext("Delete this FTP server configuration");?>"/>
 			<?php else : ?>
 					<img src="/themes/<?=$g['theme'];?>/images/icons/icon_x_d.gif" width="17" height="17" border="0" 
 					title="<?=gettext("Default server configuration cannot be deleted");?>">
@@ -1397,11 +1507,11 @@ include_once("head.inc");
 				 echo "checked";
 			      elseif ($vrt_enabled == "off")
 				 echo "disabled";
-			?>>
+			?>/>
 			<?php echo gettext("Sensitive data searches for credit card numbers, Social Security numbers and e-mail addresses in data."); ?>
 		<br/>
 		<span class="red"><strong><?php echo gettext("Note: "); ?></strong></span><?php echo gettext("To enable this preprocessor, you must select the Snort VRT rules on the ") . 
-		"<a href=\"/snort/snort_interfaces_global.php\" title=\"" . gettext("Modify Snort global settings") . "\"/>" . gettext("Global Settings") . "</a>" . gettext(" tab."); ?>
+		"<a href=\"/snort/snort_interfaces_global.php\" title=\"" . gettext("Modify Snort global settings") . "\">" . gettext("Global Settings") . "</a>" . gettext(" tab."); ?>
 		</td>
 	</tr>
 	<tr id="sdf_alert_data_row">
@@ -1411,10 +1521,10 @@ include_once("head.inc");
 			<?php
 			$values = array('Credit Card', 'Email Addresses', 'U.S. Phone Numbers', 'U.S. Social Security Numbers');
 			foreach ($values as $val): ?>
-			<option value="<?=$val;?>"
-			<?php if (preg_match("/$val/",$pconfig['sdf_alert_data_type'])) echo "selected"; ?>> 
+				<option value="<?=$val;?>"
+				<?php if (strpos($pconfig['sdf_alert_data_type'], $val) !== FALSE) echo "selected"; ?>> 
 				<?=gettext($val);?></option>
-				<?php endforeach; ?>
+			<?php endforeach; ?>
 			</select><br/><?php echo gettext("Choose which types of sensitive data to detect.  Use CTRL + Click for multiple selections."); ?><br/>
 		</td>
 	</tr>
@@ -1432,72 +1542,338 @@ include_once("head.inc");
 			<input name="sdf_mask_output" type="checkbox" value="on" 
 			<?php if ($pconfig['sdf_mask_output'] == "on")
 				 echo "checked";
-			?>>
+			?>/>
 			<?php echo gettext("Replace all but last 4 digits of PII with \"X\"s on credit card and Social Security Numbers. ") . 
 			gettext("Default is ") . "<strong>" . gettext("Not Checked") . "</strong>."; ?>
 		</td>
 	</tr>
+	<tr>
+		<td colspan="2" valign="top" class="listtopic"><?php echo gettext("POP3 Decoder Settings"); ?></td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable POP3 Decoder"); ?></td>
+		<td width="78%" class="vtable"><input name="pop_preproc" type="checkbox" value="on" 
+			<?php if ($pconfig['pop_preproc']=="on") echo "checked"; ?> onclick="pop_enable_change();"/>
+		<?php echo gettext("Normalize/Decode POP3 protocol for enforcement and buffer overflows.  Default is ") . 
+		"<strong>" . gettext("Checked") . "</strong>"; ?>.</td>
+	</tr>
+	<tbody id="pop_setting_rows">
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Memory Cap"); ?></td>
+		<td width="78%" class="vtable">
+			<input name="pop_memcap" type="text" class="formfld unknown" id="pop_memcap" size="9" 
+			value="<?=htmlspecialchars($pconfig['pop_memcap']);?>">
+			<?php echo gettext("Maximum memory in bytes to use for decoding attachments.  ") . 
+			gettext("Default is ") . "<strong>" . gettext("838860") . "</strong>" . 
+			gettext(" bytes."); ?><br/><br/>
+			<?php echo gettext("The minimum value is ") . "<strong>" . gettext("3276") . "</strong>" . gettext(" bytes and the maximum is ") . 
+			"<strong>" . gettext("100 MB") . "</strong>" . gettext(" (104857600). An IMAP preprocessor alert with sid 3 is ") . 
+			gettext("generated (when enabled) if this limit is exceeded."); ?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Base64 Decoding Depth"); ?></td>
+		<td width="78%" class="vtable"><input name="pop_b64_decode_depth" type="text" class="formfld unknown" id="pop_b64_decode_depth" size="9" value="<?=htmlspecialchars($pconfig['pop_b64_decode_depth']);?>">
+			<?php echo gettext("Depth in bytes to decode base64 encoded MIME attachments.  Default is ") . "<strong>" . gettext("0") . "</strong>" . gettext(" (unlimited)");?>.<br/><br/>
+			<?php echo gettext("Allowable values range from ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" to ") . "<strong>" . gettext("65535") . "</strong>" . 
+			gettext(". A value of ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" turns off the base64 decoding of MIME attachments. ") . 
+			gettext("A value of ") . "<strong>" . gettext("0") . "</strong>" . gettext(" sets the decoding of base64 encoded MIME attachments to unlimited. ") . 
+			gettext("A value other than 0 or -1 restricts the decoding of base64 MIME attachments, and applies per attachment. A POP preprocessor alert with sid 4 ") . 
+			gettext("is generated (if enabled) when the decoding fails.");?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Quoted Printable Decoding Depth"); ?></td>
+		<td width="78%" class="vtable"><input name="pop_qp_decode_depth" type="text" class="formfld unknown" id="pop_qp_decode_depth" size="9" value="<?=htmlspecialchars($pconfig['pop_qp_decode_depth']);?>">
+			<?php echo gettext("Byte depth to decode Quoted Printable (QP) encoded MIME attachments.  Default is ") . "<strong>" . gettext("0") . "</strong>" . gettext(" (unlimited)");?>.<br/><br/>
+			<?php echo gettext("Allowable values range from ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" to ") . "<strong>" . gettext("65535") . "</strong>" . 
+			gettext(". A value of ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" turns off the QP decoding of MIME attachments. ") . 
+			gettext("A value of ") . "<strong>" . gettext("0") . "</strong>" . gettext(" sets the decoding of QP encoded MIME attachments to unlimited. ") . 
+			gettext("A value other than 0 or -1 restricts the decoding of QP MIME attachments, and applies per attachment. A POP preprocessor alert with sid 5 ") . 
+			gettext("is generated (if enabled) when the decoding fails.");?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Non-Encoded MIME Extraction Depth"); ?></td>
+		<td width="78%" class="vtable"><input name="pop_bitenc_decode_depth" type="text" class="formfld unknown" id="pop_bitenc_decode_depth" size="9" value="<?=htmlspecialchars($pconfig['pop_bitenc_decode_depth']);?>">
+			<?php echo gettext("Depth in bytes to extract non-encoded MIME attachments.  Default is ") . "<strong>" . gettext("0") . "</strong>" . gettext(" (unlimited)");?>.<br/><br/>
+			<?php echo gettext("Allowable values range from ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" to ") . "<strong>" . gettext("65535") . "</strong>" . 
+			gettext(". A value of ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" turns off the extraction of non-encoded MIME attachments. ") . 
+			gettext("A value of ") . "<strong>" . gettext("0") . "</strong>" . gettext(" sets the extraction of non-encoded MIME attachments to unlimited. ") . 
+			gettext("A value other than 0 or -1 restricts the extraction of non-encoded MIME attachments, and applies per attachment.");?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Unix-to-Unix Decoding Depth"); ?></td>
+		<td width="78%" class="vtable"><input name="pop_uu_decode_depth" type="text" class="formfld unknown" id="pop_uu_decode_depth" size="9" value="<?=htmlspecialchars($pconfig['pop_uu_decode_depth']);?>">
+			<?php echo gettext("Depth in bytes to decode Unix-to-Unix (UU) encoded MIME attachments.  Default is ") . "<strong>" . gettext("0") . "</strong>" . gettext(" (unlimited)");?>.<br/><br/>
+			<?php echo gettext("Allowable values range from ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" to ") . "<strong>" . gettext("65535") . "</strong>" . 
+			gettext(". A value of ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" turns off the UU decoding of MIME attachments. ") . 
+			gettext("A value of ") . "<strong>" . gettext("0") . "</strong>" . gettext(" sets the decoding of UU encoded MIME attachments to unlimited. ") . 
+			gettext("A value other than 0 or -1 restricts the decoding of UU MIME attachments, and applies per attachment. A POP preprocessor alert with sid 7 ") . 
+			gettext("is generated (if enabled) when the decoding fails.");?>
+		</td>
+	</tr>
+	</tbody>
+	<tr>
+		<td colspan="2" valign="top" class="listtopic"><?php echo gettext("IMAP Decoder Settings"); ?></td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable IMAP Decoder"); ?></td>
+		<td width="78%" class="vtable"><input name="imap_preproc" type="checkbox" value="on" 
+			<?php if ($pconfig['imap_preproc']=="on") echo "checked"; ?> onclick="imap_enable_change();"/>
+			<?php echo gettext("Normalize/Decode IMAP protocol for enforcement and buffer overflows.  Default is ") . 
+			"<strong>" . gettext("Checked") . "</strong>."; ?>
+		</td>
+	</tr>
+	<tbody id="imap_setting_rows">
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Memory Cap"); ?></td>
+		<td width="78%" class="vtable">
+			<input name="imap_memcap" type="text" class="formfld unknown" id="imap_memcap" size="9" 
+			value="<?=htmlspecialchars($pconfig['imap_memcap']);?>">
+			<?php echo gettext("Maximum memory in bytes to use for decoding attachments.  ") . 
+			gettext("Default is ") . "<strong>" . gettext("838860") . "</strong>" . 
+			gettext(" bytes."); ?><br/><br/>
+			<?php echo gettext("The minimum value is ") . "<strong>" . gettext("3276") . "</strong>" . gettext(" bytes and the maximum is ") . 
+			"<strong>" . gettext("100 MB") . "</strong>" . gettext(" (104857600). An IMAP preprocessor alert with sid 3 is ") . 
+			gettext("generated (when enabled) if this limit is exceeded."); ?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Base64 Decoding Depth"); ?></td>
+		<td width="78%" class="vtable"><input name="imap_b64_decode_depth" type="text" class="formfld unknown" id="imap_b64_decode_depth" size="9" value="<?=htmlspecialchars($pconfig['imap_b64_decode_depth']);?>">
+			<?php echo gettext("Depth in bytes to decode base64 encoded MIME attachments.  Default is ") . "<strong>" . gettext("0") . "</strong>" . gettext(" (unlimited)");?>.<br/><br/>
+			<?php echo gettext("Allowable values range from ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" to ") . "<strong>" . gettext("65535") . "</strong>" . 
+			gettext(". A value of ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" turns off the base64 decoding of MIME attachments. ") . 
+			gettext("A value of ") . "<strong>" . gettext("0") . "</strong>" . gettext(" sets the decoding of base64 encoded MIME attachments to unlimited. ") . 
+			gettext("A value other than 0 or -1 restricts the decoding of base64 MIME attachments, and applies per attachment. An IMAP preprocessor alert with sid 4 ") . 
+			gettext("is generated (if enabled) when the decoding fails.");?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Quoted Printable Decoding Depth"); ?></td>
+		<td width="78%" class="vtable"><input name="imap_qp_decode_depth" type="text" class="formfld unknown" id="imap_qp_decode_depth" size="9" value="<?=htmlspecialchars($pconfig['imap_qp_decode_depth']);?>">
+			<?php echo gettext("Byte depth to decode Quoted Printable (QP) encoded MIME attachments.  Default is ") . "<strong>" . gettext("0") . "</strong>" . gettext(" (unlimited)");?>.<br/><br/>
+			<?php echo gettext("Allowable values range from ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" to ") . "<strong>" . gettext("65535") . "</strong>" . 
+			gettext(". A value of ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" turns off the QP decoding of MIME attachments. ") . 
+			gettext("A value of ") . "<strong>" . gettext("0") . "</strong>" . gettext(" sets the decoding of QP encoded MIME attachments to unlimited. ") . 
+			gettext("A value other than 0 or -1 restricts the decoding of QP MIME attachments, and applies per attachment. An IMAP preprocessor alert with sid 5 ") . 
+			gettext("is generated (if enabled) when the decoding fails.");?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Non-Encoded MIME Extraction Depth"); ?></td>
+		<td width="78%" class="vtable"><input name="imap_bitenc_decode_depth" type="text" class="formfld unknown" id="imap_bitenc_decode_depth" size="9" value="<?=htmlspecialchars($pconfig['imap_bitenc_decode_depth']);?>">
+			<?php echo gettext("Depth in bytes to extract non-encoded MIME attachments.  Default is ") . "<strong>" . gettext("0") . "</strong>" . gettext(" (unlimited)");?>.<br/><br/>
+			<?php echo gettext("Allowable values range from ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" to ") . "<strong>" . gettext("65535") . "</strong>" . 
+			gettext(". A value of ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" turns off the extraction of non-encoded MIME attachments. ") . 
+			gettext("A value of ") . "<strong>" . gettext("0") . "</strong>" . gettext(" sets the extraction of non-encoded MIME attachments to unlimited. ") . 
+			gettext("A value other than 0 or -1 restricts the extraction of non-encoded MIME attachments, and applies per attachment.");?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Unix-to-Unix Decoding Depth"); ?></td>
+		<td width="78%" class="vtable"><input name="imap_uu_decode_depth" type="text" class="formfld unknown" id="imap_uu_decode_depth" size="9" value="<?=htmlspecialchars($pconfig['imap_uu_decode_depth']);?>">
+			<?php echo gettext("Depth in bytes to decode Unix-to-Unix (UU) encoded MIME attachments.  Default is ") . "<strong>" . gettext("0") . "</strong>" . gettext(" (unlimited)");?>.<br/><br/>
+			<?php echo gettext("Allowable values range from ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" to ") . "<strong>" . gettext("65535") . "</strong>" . 
+			gettext(". A value of ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" turns off the UU decoding of MIME attachments. ") . 
+			gettext("A value of ") . "<strong>" . gettext("0") . "</strong>" . gettext(" sets the decoding of UU encoded MIME attachments to unlimited. ") . 
+			gettext("A value other than 0 or -1 restricts the decoding of UU MIME attachments, and applies per attachment. An IMAP preprocessor alert with sid 7 ") . 
+			gettext("is generated (if enabled) when the decoding fails.");?>
+		</td>
+	</tr>
+	</tbody>
+
+	<tr>
+		<td colspan="2" valign="top" class="listtopic"><?php echo gettext("SMTP Decoder Settings"); ?></td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable SMTP Decoder"); ?></td>
+		<td width="78%" class="vtable"><input name="smtp_preprocessor" type="checkbox" value="on" 
+			<?php if ($pconfig['smtp_preprocessor']=="on") echo "checked"; ?> onclick="smtp_enable_change();"/>
+			<?php echo gettext("Normalize/Decode SMTP protocol for enforcement and buffer overflows.  Default is ") . 
+			"<strong>" . gettext("Checked") . "</strong>."; ?>
+		</td>
+	</tr>
+	<tbody id="smtp_setting_rows">
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Memory Cap"); ?></td>
+		<td width="78%" class="vtable">
+			<input name="smtp_memcap" type="text" class="formfld unknown" id="smtp_memcap" size="9" 
+			value="<?=htmlspecialchars($pconfig['smtp_memcap']);?>"/>
+			<?php echo gettext("Max memory in bytes used to log filename, addresses and headers.  ") . 
+			gettext("Default is ") . "<strong>" . gettext("838860") . "</strong>" . gettext(" bytes."); ?><br/><br/>
+			<?php echo gettext("The minimum value is ") . "<strong>" . gettext("3276") . "</strong>" . gettext(" bytes and the maximum is ") . 
+			"<strong>" . gettext("100 MB") . "</strong>" . gettext(" (104857600).  When this memcap is reached, ") . 
+			gettext("SMTP will stop logging the filename, MAIL FROM address, RCPT TO addresses and email headers until memory becomes available."); ?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Ignore Data"); ?></td>
+		<td width="78%" class="vtable"><input name="smtp_ignore_data" type="checkbox" value="on" 
+			<?php if ($pconfig['smtp_ignore_data']=="on") echo "checked"; ?>/>
+			<?php echo gettext("Ignore data section of mail (except for mail headers) when processing rules.  Default is ") . 
+			"<strong>" . gettext("Not Checked") . "</strong>."; ?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Ignore TLS Data"); ?></td>
+		<td width="78%" class="vtable"><input name="smtp_ignore_tls_data" type="checkbox" value="on" 
+			<?php if ($pconfig['smtp_ignore_tls_data']=="on") echo "checked"; ?>/>
+			<?php echo gettext("Ignore TLS-encrypted data when processing rules.  Default is ") . 
+			"<strong>" . gettext("Checked") . "</strong>."; ?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Log Mail From"); ?></td>
+		<td width="78%" class="vtable"><input name="smtp_log_mail_from" type="checkbox" value="on" 
+			<?php if ($pconfig['smtp_log_mail_from']=="on") echo "checked"; ?>/>
+			<?php echo gettext("Log sender email address extracted from MAIL FROM command.  Default is ") . 
+			"<strong>" . gettext("Checked") . "</strong>."; ?><br/>
+			<span class="red"><strong><?php echo gettext("Note: "); ?></strong></span>
+			<?php echo gettext("this is logged only with the unified2 (Barnyard2) output enabled."); ?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Log Receipt To"); ?></td>
+		<td width="78%" class="vtable"><input name="smtp_log_rcpt_to" type="checkbox" value="on" 
+			<?php if ($pconfig['smtp_log_rcpt_to']=="on") echo "checked"; ?>/>
+			<?php echo gettext("Log recipient email addresses extracted from RCPT TO command.  Default is ") . 
+			"<strong>" . gettext("Checked") . "</strong>."; ?><br/>
+			<span class="red"><strong><?php echo gettext("Note: "); ?></strong></span>
+			<?php echo gettext("this is logged only with the unified2 (Barnyard2) output enabled."); ?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Log Filename"); ?></td>
+		<td width="78%" class="vtable"><input name="smtp_log_filename" type="checkbox" value="on" 
+			<?php if ($pconfig['smtp_log_filename']=="on") echo "checked"; ?>/>
+			<?php echo gettext("Log MIME attachment filenames extracted from Content-Disposition header.  Default is ") . 
+			"<strong>" . gettext("Checked") . "</strong>."; ?><br/>
+			<span class="red"><strong><?php echo gettext("Note: "); ?></strong></span>
+			<?php echo gettext("this is logged only with the unified2 (Barnyard2) output enabled."); ?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Log E-Mail Headers"); ?></td>
+		<td width="78%" class="vtable"><input name="smtp_log_email_hdrs" type="checkbox" value="on" 
+			<?php if ($pconfig['smtp_log_email_hdrs']=="on") echo "checked"; ?>/>
+			<?php echo gettext("Log SMTP email headers extracted from SMTP data.  Default is ") . 
+			"<strong>" . gettext("Checked") . "</strong>."; ?><br/>
+			<span class="red"><strong><?php echo gettext("Note: "); ?></strong></span>
+			<?php echo gettext("this is logged only with the unified2 (Barnyard2) output enabled."); ?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("E-Mail Headers Log Depth"); ?></td>
+		<td width="78%" class="vtable">
+			<input name="smtp_email_hdrs_log_depth" type="text" class="formfld unknown" id="smtp_email_hdrs_log_depth" size="9" 
+			value="<?=htmlspecialchars($pconfig['smtp_email_hdrs_log_depth']);?>"/>
+			<?php echo gettext("Memory in bytes to use for logging e-mail headers.  ") . 
+			gettext("Default is ") . "<strong>" . gettext("1464") . "</strong>" . gettext(" bytes."); ?><br/><br/>
+			<?php echo gettext("Allowable values range from ") . "<strong>" . gettext("0") . "</strong>" . gettext(" to ") . 
+			"<strong>" . gettext("20480") . "</strong>" . gettext(".  A value of ") . "<strong>" . gettext("0") . "</strong>" . 
+			gettext(" will disable e-mail headers logging."); ?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Maximum MIME Memory"); ?></td>
+		<td width="78%" class="vtable">
+			<input name="smtp_max_mime_mem" type="text" class="formfld unknown" id="smtp_max_mime_mem" size="9" 
+			value="<?=htmlspecialchars($pconfig['smtp_max_mime_mem']);?>"/>
+			<?php echo gettext("Maximum memory in bytes to use for decoding attachments.  ") . 
+			gettext("Default is ") . "<strong>" . gettext("838860") . "</strong>" . gettext(" bytes."); ?><br/><br/>
+			<?php echo gettext("The minimum value is ") . "<strong>" . gettext("3276") . "</strong>" . gettext(" bytes and the maximum is ") . 
+			"<strong>" . gettext("100 MB") . "</strong>" . gettext(" (104857600)."); ?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Base64 Decoding Depth"); ?></td>
+		<td width="78%" class="vtable"><input name="smtp_b64_decode_depth" type="text" class="formfld unknown" id="smtp_b64_decode_depth" size="9" value="<?=htmlspecialchars($pconfig['smtp_b64_decode_depth']);?>">
+			<?php echo gettext("Depth in bytes to decode base64 encoded MIME attachments.  Default is ") . "<strong>" . gettext("0") . "</strong>" . gettext(" (unlimited)");?>.<br/><br/>
+			<?php echo gettext("Allowable values range from ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" to ") . "<strong>" . gettext("65535") . "</strong>" . 
+			gettext(". A value of ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" turns off the base64 decoding of MIME attachments. ") . 
+			gettext("A value of ") . "<strong>" . gettext("0") . "</strong>" . gettext(" sets the decoding of base64 encoded MIME attachments to unlimited. ") . 
+			gettext("A value other than 0 or -1 restricts the decoding of base64 MIME attachments, and applies per attachment. An SMTP preprocessor alert with sid 10 ") . 
+			gettext("is generated when the decoding fails.");?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Quoted Printable Decoding Depth"); ?></td>
+		<td width="78%" class="vtable"><input name="smtp_qp_decode_depth" type="text" class="formfld unknown" id="smtp_qp_decode_depth" size="9" value="<?=htmlspecialchars($pconfig['smtp_qp_decode_depth']);?>">
+			<?php echo gettext("Byte depth to decode Quoted Printable (QP) encoded MIME attachments.  Default is ") . "<strong>" . gettext("0") . "</strong>" . gettext(" (unlimited)");?>.<br/><br/>
+			<?php echo gettext("Allowable values range from ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" to ") . "<strong>" . gettext("65535") . "</strong>" . 
+			gettext(". A value of ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" turns off the QP decoding of MIME attachments. ") . 
+			gettext("A value of ") . "<strong>" . gettext("0") . "</strong>" . gettext(" sets the decoding of QP encoded MIME attachments to unlimited. ") . 
+			gettext("A value other than 0 or -1 restricts the decoding of QP MIME attachments, and applies per attachment. An SMTP preprocessor alert with sid 11 ") . 
+			gettext("is generated when the decoding fails.");?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Non-Encoded MIME Extraction Depth"); ?></td>
+		<td width="78%" class="vtable"><input name="smtp_bitenc_decode_depth" type="text" class="formfld unknown" id="smtp_bitenc_decode_depth" size="9" value="<?=htmlspecialchars($pconfig['smtp_bitenc_decode_depth']);?>">
+			<?php echo gettext("Depth in bytes to extract non-encoded MIME attachments.  Default is ") . "<strong>" . gettext("0") . "</strong>" . gettext(" (unlimited)");?>.<br/><br/>
+			<?php echo gettext("Allowable values range from ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" to ") . "<strong>" . gettext("65535") . "</strong>" . 
+			gettext(". A value of ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" turns off the extraction of non-encoded MIME attachments. ") . 
+			gettext("A value of ") . "<strong>" . gettext("0") . "</strong>" . gettext(" sets the extraction of non-encoded MIME attachments to unlimited. ") . 
+			gettext("A value other than 0 or -1 restricts the extraction of non-encoded MIME attachments, and applies per attachment.");?>
+		</td>
+	</tr>
+	<tr>
+		<td width="22%" valign="top" class="vncell"><?php echo gettext("Unix-to-Unix Decoding Depth"); ?></td>
+		<td width="78%" class="vtable"><input name="smtp_uu_decode_depth" type="text" class="formfld unknown" id="smtp_uu_decode_depth" size="9" value="<?=htmlspecialchars($pconfig['smtp_uu_decode_depth']);?>">
+			<?php echo gettext("Depth in bytes to decode Unix-to-Unix (UU) encoded MIME attachments.  Default is ") . "<strong>" . gettext("0") . "</strong>" . gettext(" (unlimited)");?>.<br/><br/>
+			<?php echo gettext("Allowable values range from ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" to ") . "<strong>" . gettext("65535") . "</strong>" . 
+			gettext(". A value of ") . "<strong>" . gettext("-1") . "</strong>" . gettext(" turns off the UU decoding of MIME attachments. ") . 
+			gettext("A value of ") . "<strong>" . gettext("0") . "</strong>" . gettext(" sets the decoding of UU encoded MIME attachments to unlimited. ") . 
+			gettext("A value other than 0 or -1 restricts the decoding of UU MIME attachments, and applies per attachment. An SMTP preprocessor alert with sid 13 ") . 
+			gettext("is generated (if enabled) when the decoding fails.");?>
+		</td>
+	</tr>
+	</tbody>
+
+
 	<tr>
 		<td colspan="2" valign="top" class="listtopic"><?php echo gettext("General Preprocessors"); ?></td>
 	</tr>
 	<tr>
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable RPC Decode and Back Orifice detector"); ?></td>
 		<td width="78%" class="vtable"><input name="other_preprocs" type="checkbox" value="on" 
-			<?php if ($pconfig['other_preprocs']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['other_preprocs']=="on") echo "checked"; ?>/>
 		<?php echo gettext("Normalize/Decode RPC traffic and detects Back Orifice traffic on the network.  Default is ") . 
-		"<strong>" . gettext("Checked") . "</strong>"; ?>.</td>
-	</tr>
-	<tr>
-		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable POP Normalizer"); ?></td>
-		<td width="78%" class="vtable"><input name="pop_preproc" type="checkbox" value="on" 
-			<?php if ($pconfig['pop_preproc']=="on") echo "checked"; ?>>
-		<?php echo gettext("Normalize/Decode POP protocol for enforcement and buffer overflows.  Default is ") . 
-		"<strong>" . gettext("Checked") . "</strong>"; ?>.</td>
-	</tr>
-	<tr>
-		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable IMAP Normalizer"); ?></td>
-		<td width="78%" class="vtable"><input name="imap_preproc" type="checkbox" value="on" 
-			<?php if ($pconfig['imap_preproc']=="on") echo "checked"; ?>>
-		<?php echo gettext("Normalize/Decode IMAP protocol for enforcement and buffer overflows.  Default is ") . 
-		"<strong>" . gettext("Checked") . "</strong>"; ?>.</td>
-	</tr>
-	<tr>
-		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable SMTP Normalizer"); ?></td>
-		<td width="78%" class="vtable"><input name="smtp_preprocessor" type="checkbox" value="on" 
-			<?php if ($pconfig['smtp_preprocessor']=="on") echo "checked"; ?>>
-		<?php echo gettext("Normalize/Decode SMTP protocol for enforcement and buffer overflows.  Default is ") . 
 		"<strong>" . gettext("Checked") . "</strong>"; ?>.</td>
 	</tr>
 	<tr>
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable DCE/RPC2 Detection"); ?></td>
 		<td width="78%" class="vtable"><input name="dce_rpc_2" type="checkbox" value="on" 
-			<?php if ($pconfig['dce_rpc_2']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['dce_rpc_2']=="on") echo "checked"; ?>/>
 		<?php echo gettext("The DCE/RPC preprocessor detects and decodes SMB and DCE/RPC traffic.  Default is ") . 
 		"<strong>" . gettext("Checked") . "</strong>"; ?>.</td>
 	</tr>
 	<tr>
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable SIP Detection"); ?></td>
 		<td width="78%" class="vtable"><input name="sip_preproc" type="checkbox" value="on" 
-			<?php if ($pconfig['sip_preproc']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['sip_preproc']=="on") echo "checked"; ?>/>
 		<?php echo gettext("The SIP preprocessor decodes SIP traffic and detects vulnerabilities.  Default is ") . 
 		"<strong>" . gettext("Checked") . "</strong>"; ?>.</td>
 	</tr>
 	<tr>
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable GTP Detection"); ?></td>
 		<td width="78%" class="vtable"><input name="gtp_preproc" type="checkbox" value="on" 
-			<?php if ($pconfig['gtp_preproc']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['gtp_preproc']=="on") echo "checked"; ?>/>
 		<?php echo gettext("The GTP preprocessor decodes GPRS Tunneling Protocol traffic and detects intrusion attempts."); ?></td>
 	</tr>
 	<tr>
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable SSH Detection"); ?></td>
 		<td width="78%" class="vtable"><input name="ssh_preproc" type="checkbox" value="on" 
-			<?php if ($pconfig['ssh_preproc']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['ssh_preproc']=="on") echo "checked"; ?>/>
 		<?php echo gettext("The SSH preprocessor detects various Secure Shell exploit attempts."); ?></td>
 	</tr>
 	<tr>
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable DNS Detection"); ?></td>
 		<td width="78%" class="vtable"><input name="dns_preprocessor" type="checkbox" value="on" 
-			<?php if ($pconfig['dns_preprocessor']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['dns_preprocessor']=="on") echo "checked"; ?>/>
 		<?php echo gettext("The DNS preprocessor decodes DNS response traffic and detects vulnerabilities.  Default is ") . 
 		"<strong>" . gettext("Checked") . "</strong>"; ?>.</td>
 	</tr>
@@ -1505,7 +1881,7 @@ include_once("head.inc");
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable SSL Data"); ?></td>
 		<td width="78%" class="vtable">
 			<input name="ssl_preproc" type="checkbox" value="on"  
-			<?php if ($pconfig['ssl_preproc']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['ssl_preproc']=="on") echo "checked"; ?>/>
 		<?php echo gettext("SSL data searches for irregularities during SSL protocol exchange.  Default is ") . 
 		"<strong>" . gettext("Checked") . "</strong>"; ?>.</td>	
 	</tr>
@@ -1516,7 +1892,7 @@ include_once("head.inc");
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable Modbus Detection"); ?></td>
 		<td width="78%" class="vtable">
 			<input name="modbus_preproc" type="checkbox" value="on" 
-			<?php if ($pconfig['modbus_preproc']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['modbus_preproc']=="on") echo "checked"; ?>/>
 			<?php echo gettext("Modbus is a protocol used in SCADA networks.  The default port is TCP 502.") . "<br/>" . 
 		  	"<span class=\"red\"><strong>" . gettext("Note: ") . "</strong></span>" . 
 			gettext("If your network does not contain Modbus-enabled devices, you can leave this preprocessor disabled."); ?>
@@ -1526,7 +1902,7 @@ include_once("head.inc");
 		<td width="22%" valign="top" class="vncell"><?php echo gettext("Enable DNP3 Detection"); ?></td>
 		<td width="78%" class="vtable">
 			<input name="dnp3_preproc" type="checkbox" value="on" 
-			<?php if ($pconfig['dnp3_preproc']=="on") echo "checked"; ?>>
+			<?php if ($pconfig['dnp3_preproc']=="on") echo "checked"; ?>/>
 			<?php echo gettext("DNP3 is a protocol used in SCADA networks.  The default port is TCP 20000.") . "<br/>" . 
 		  	"<span class=\"red\"><strong>" . gettext("Note: ") . "</strong></span>" . 
 			gettext("If your network does not contain DNP3-enabled devices, you can leave this preprocessor disabled."); ?>
@@ -1535,13 +1911,13 @@ include_once("head.inc");
 	<tr>
 		<td width="22%" valign="top">&nbsp;</td>
 		<td width="78%">
-			<input name="Submit" type="submit" class="formbtn" value="Save" title="<?php echo 
+			<input name="save" type="submit" class="formbtn" value="Save" title="<?php echo 
 			gettext("Save preprocessor settings"); ?>">
-			<input name="id" type="hidden" value="<?=$id;?>">&nbsp;&nbsp;&nbsp;&nbsp;
+			&nbsp;&nbsp;&nbsp;&nbsp;
 			<input name="ResetAll" type="submit" class="formbtn" value="Reset" title="<?php echo 
 			gettext("Reset all settings to defaults") . "\" onclick=\"return confirm('" . 
 			gettext("WARNING:  This will reset ALL preprocessor settings to their defaults.  Click OK to continue or CANCEL to quit.") . 
-			"');\""; ?>></td>
+			"');\""; ?>/></td>
 	</tr>
 	<tr>
 		<td width="22%" valign="top">&nbsp;</td>
@@ -1584,8 +1960,6 @@ include_once("head.inc");
 function createAutoSuggest() {
 <?php
 	echo "objAlias = new AutoSuggestControl(document.getElementById('pscan_ignore_scanners'), new StateSuggestions(addressarray));\n";
-	echo "objAlias = new AutoSuggestControl(document.getElementById('ftp_telnet_bounce_to_net'), new StateSuggestions(addressarray));\n";
-	echo "objAlias = new AutoSuggestControl(document.getElementById('ftp_telnet_bounce_to_port'), new StateSuggestions(portsarray));\n";
 ?>
 }
 
@@ -1688,12 +2062,20 @@ function http_inspect_enable_change() {
 	var endis = !(document.iform.http_inspect.checked);
 	document.iform.http_inspect_memcap.disabled=endis;
 
-	// Hide the "icmp session timeout " row if stream5_track_icmp disabled
-	if (endis) {
-		document.getElementById("httpinspect_memcap_row").style.display="none";
-		document.getElementById("httpinspect_maxgzipmem_row").style.display="none";
-		document.getElementById("httpinspect_proxyalert_row").style.display="none";
-		document.getElementById("httpinspect_engconf_row").style.display="none";
+	if (!document.iform.http_inspect.checked) {
+		var msg = "WARNING:  Disabling the http_inspect preprocessor is not recommended!\n\n";
+		msg = msg + "Snort may fail to start because of other dependent preprocessors or ";
+		msg = msg + "rule options.  Are you sure you want to disable it?\n\n";
+		msg = msg + "Click OK to disable http_inspect, or CANCEL to quit.";
+		if (!confirm(msg)) {
+			document.iform.http_inspect.checked=true;
+		}
+		else {
+			document.getElementById("httpinspect_memcap_row").style.display="none";
+			document.getElementById("httpinspect_maxgzipmem_row").style.display="none";
+			document.getElementById("httpinspect_proxyalert_row").style.display="none";
+			document.getElementById("httpinspect_engconf_row").style.display="none";
+		}
 	}
 	else {
 		document.getElementById("httpinspect_memcap_row").style.display="table-row";
@@ -1723,6 +2105,16 @@ function sf_portscan_enable_change() {
 	}
 }
 
+function appid_preproc_enable_change() {
+	var endis = !(document.iform.appid_preproc.checked);
+
+	// Hide the AppID configuration rows if appid_preproc disabled
+	if (endis)
+		document.getElementById("appid_rows").style.display="none";
+	else
+		document.getElementById("appid_rows").style.display="";
+}
+
 function stream5_enable_change() {
 	if (!document.iform.stream5_reassembly.checked) {
 		var msg = "WARNING:  Stream5 is a critical preprocessor, and disabling it is not recommended!  ";
@@ -1730,7 +2122,8 @@ function stream5_enable_change() {
 		msg = msg + "    SMTP\t\tPOP\t\tSIP\n";
 		msg = msg + "    SENSITIVE_DATA\tSF_PORTSCAN\tDCE/RPC 2\n";
 		msg = msg + "    IMAP\t\tDNS\t\tSSL\n";
-		msg = msg + "    GTP\t\tDNP3\t\tMODBUS\n\n";
+		msg = msg + "    GTP\t\tDNP3\t\tMODBUS\n";
+		msg = msg + "    APP_ID\n\n";
 		msg = msg + "Snort may fail to start because of other preprocessors or rule options dependent on Stream5.  ";
 		msg = msg + "Are you sure you want to disable it?\n\n";
 		msg = msg + "Click OK to disable Stream5, or CANCEL to quit.";
@@ -1749,6 +2142,7 @@ function stream5_enable_change() {
 			document.iform.dns_preprocessor.checked=false;
 			document.iform.modbus_preproc.checked=false;
 			document.iform.dnp3_preproc.checked=false;
+			document.iform.appid_preproc.checked=false;
 			document.iform.sf_portscan.checked=false;
 			sf_portscan_enable_change();
 		}
@@ -1824,9 +2218,40 @@ function sensitive_data_enable_change() {
 	}
 }
 
+function pop_enable_change() {
+	var endis = !(document.iform.pop_preproc.checked);
+
+	// Hide POP3 configuration rows if POP preprocessor disabled
+	if (endis)
+		document.getElementById("pop_setting_rows").style.display = "none";
+	else
+		document.getElementById("pop_setting_rows").style.display = "";
+}
+
+function imap_enable_change() {
+	var endis = !(document.iform.imap_preproc.checked);
+
+	// Hide IMAP configuration rows if IMAP preprocessor disabled
+	if (endis)
+		document.getElementById("imap_setting_rows").style.display = "none";
+	else
+		document.getElementById("imap_setting_rows").style.display = "";
+}
+
+function smtp_enable_change() {
+	var endis = !(document.iform.smtp_preprocessor.checked);
+
+	// Hide SMTP configuration rows if SMTP preprocessor disabled
+	if (endis)
+		document.getElementById("smtp_setting_rows").style.display = "none";
+	else
+		document.getElementById("smtp_setting_rows").style.display = "";
+}
+
 function enable_change_all() {
 	http_inspect_enable_change();
 	sf_portscan_enable_change();
+	appid_preproc_enable_change();
 
 	// -- Enable/Disable Host Attribute Table settings --
 	host_attribute_table_enable_change();
@@ -1878,6 +2303,9 @@ function enable_change_all() {
 	stream5_track_icmp_enable_change();
 	ftp_telnet_enable_change();
 	sensitive_data_enable_change();
+	pop_enable_change();
+	imap_enable_change();
+	smtp_enable_change();
 }
 
 function wopen(url, name, w, h)
@@ -1893,6 +2321,29 @@ function wopen(url, name, w, h)
        'status=no, toolbar=no, scrollbars=yes, resizable=yes');
     win.resizeTo(w, h);
     win.focus();
+}
+
+function selectAlias() {
+
+	var loc;
+	var fields = [ "sf_portscan", "pscan_protocol", "pscan_type", "pscan_sense_level", "pscan_memcap", "pscan_ignore_scanners" ];
+
+	// Scrape current form field values and add to
+	// the select alias URL as a query string.
+	var loc = 'snort_select_alias.php?id=<?=$id;?>&act=import&type=host|network';
+	loc = loc + '&varname=pscan_ignore_scanners&multi_ip=yes';
+	loc = loc + '&returl=<?=urlencode($_SERVER['PHP_SELF']);?>';
+	loc = loc + '&uuid=<?=$passlist_uuid;?>';
+
+	// Iterate over just the specific form fields we want to pass to
+	// the select alias URL.
+	fields.forEach(function(entry) {
+		var tmp = $(entry).serialize();
+		if (tmp.length > 0)
+			loc = loc + '&' + tmp;
+	});
+	
+	window.parent.location = loc; 
 }
 
 // Set initial state of form controls

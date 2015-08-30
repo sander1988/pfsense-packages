@@ -1,8 +1,8 @@
 <?php
 /*
- * snort_migrate_config.inc
+ * snort_migrate_config.php
  *
- * Copyright (C) 2013 Bill Meeks
+ * Copyright (C) 2013, 2014 Bill Meeks
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -70,6 +70,63 @@ if (empty($config['installedpackages']['snortglobal']['snort_config_ver']) &&
 	$updated_cfg = true;
 }
 
+/**********************************************************/
+/* Create new Auto SID Mgmt settings if not set           */
+/**********************************************************/
+if (empty($config['installedpackages']['snortglobal']['auto_manage_sids'])) {
+	$config['installedpackages']['snortglobal']['auto_manage_sids'] = "off";
+	$updated_cfg = true;
+}
+
+/**********************************************************/
+/* Create new LOG MGMT settings if not set                */
+/**********************************************************/
+if (empty($config['installedpackages']['snortglobal']['enable_log_mgmt'])) {
+	$config['installedpackages']['snortglobal']['enable_log_mgmt'] = "on";
+	$config['installedpackages']['snortglobal']['alert_log_limit_size'] = "500";
+	$config['installedpackages']['snortglobal']['alert_log_retention'] = "336";
+	$config['installedpackages']['snortglobal']['appid_stats_log_limit_size'] = "1000";
+	$config['installedpackages']['snortglobal']['appid_stats_log_retention'] = "168";
+	$config['installedpackages']['snortglobal']['event_pkts_log_limit_size'] = "0";
+	$config['installedpackages']['snortglobal']['event_pkts_log_retention'] = "336";
+	$config['installedpackages']['snortglobal']['sid_changes_log_limit_size'] = "250";
+	$config['installedpackages']['snortglobal']['sid_changes_log_retention'] = "336";
+	$config['installedpackages']['snortglobal']['stats_log_limit_size'] = "500";
+	$config['installedpackages']['snortglobal']['stats_log_retention'] = "168";
+	$updated_cfg = true;
+}
+if (empty($config['installedpackages']['snortglobal']['appid_stats_log_limit_size']))
+	$config['installedpackages']['snortglobal']['appid_stats_log_limit_size'] = "1000";
+if (empty($config['installedpackages']['snortglobal']['appid_stats_log_retention']))
+	$config['installedpackages']['snortglobal']['appid_stats_log_retention'] = "168";
+
+/**********************************************************/
+/* Create new VERBOSE_LOGGING setting if not set          */
+/**********************************************************/
+if (empty($config['installedpackages']['snortglobal']['verbose_logging'])) {
+	$config['installedpackages']['snortglobal']['verbose_logging'] = "off";
+	$updated_cfg = true;
+}
+
+/**********************************************************/
+/* Create new OpenAppID settings if not set               */
+/**********************************************************/
+if (empty($config['installedpackages']['snortglobal']['openappid_detectors'])) {
+	$config['installedpackages']['snortglobal']['openappid_detectors'] = "off";
+	$updated_cfg = true;
+}
+
+/**********************************************************/
+/* Create new HIDE_DEPRECATED_RULES setting if not set    */
+/**********************************************************/
+if (empty($config['installedpackages']['snortglobal']['hide_deprecated_rules'])) {
+	$config['installedpackages']['snortglobal']['hide_deprecated_rules'] = "off";
+	$updated_cfg = true;
+}
+
+/**********************************************************/
+/* Migrate per interface settings if required.            */
+/**********************************************************/
 foreach ($rule as &$r) {
 	// Initialize arrays for supported preprocessors if necessary
 	if (!is_array($r['frag3_engine']['item']))
@@ -288,20 +345,206 @@ foreach ($rule as &$r) {
 		}
 	}
 
+	// Change any ENABLE_SID settings to new format of GID:SID
+	if (!empty($pconfig['rule_sid_on'])) {
+		$tmp = explode("||", $pconfig['rule_sid_on']);
+		$new_tmp = "";
+		foreach ($tmp as $v) {
+			if (strpos($v, ":") === false) {
+				if (preg_match('/(\d+)/', $v, $match))
+					$new_tmp .= "1:{$match[1]}||";
+			}
+		}
+		$new_tmp = rtrim($new_tmp, " ||");
+		if (!empty($new_tmp)) {
+			$pconfig['rule_sid_on'] = $new_tmp;
+			$updated_cfg = true;
+		}
+	}
+
+	// Change any DISABLE_SID settings to new format of GID:SID
+	if (!empty($pconfig['rule_sid_off'])) {
+		$tmp = explode("||", $pconfig['rule_sid_off']);
+		$new_tmp = "";
+		foreach ($tmp as $v) {
+			if (strpos($v, ":") === false) {
+				if (preg_match('/(\d+)/', $v, $match))
+					$new_tmp .= "1:{$match[1]}||";
+			}
+		}
+		$new_tmp = rtrim($new_tmp, " ||");
+		if (!empty($new_tmp)) {
+			$pconfig['rule_sid_off'] = $new_tmp;
+			$updated_cfg = true;
+		}
+	}
+
+	// Migrate any Barnyard2 settings to the new advanced fields.
+	// Parse the old DB connect string and find the "host", "user",
+	// "dbname" and "password" values and save them in the new
+	// MySQL field names in the config file.
+	if (!empty($pconfig['barnyard_mysql'])) {
+		if (preg_match_all('/(dbname|host|user|password)\s*\=\s*([^\s]*)/i', $pconfig['barnyard_mysql'], $matches)) {
+			foreach ($matches[1] as $k => $p) {
+				if (strcasecmp($p, 'dbname') == 0)
+					$pconfig['barnyard_dbname'] = $matches[2][$k];
+				elseif (strcasecmp($p, 'host') == 0)
+					$pconfig['barnyard_dbhost'] = $matches[2][$k];
+				elseif (strcasecmp($p, 'user') == 0)
+					$pconfig['barnyard_dbuser'] = $matches[2][$k];
+				elseif (strcasecmp($p, 'password') == 0)
+					$pconfig['barnyard_dbpwd'] = base64_encode($matches[2][$k]);
+			}
+			$pconfig['barnyard_mysql_enable'] = 'on';
+			unset($pconfig['barnyard_mysql']);
+		}
+		// Since Barnyard2 was enabled, configure the new archived log settings
+		$pconfig['u2_archived_log_retention'] = '168';
+		$pconfig['barnyard_archive_enable'] = 'on';
+		$pconfig['unified2_log_limit'] = '32M';
+		$updated_cfg = true;
+	}
+
+	// This setting is deprecated and replaced
+	// by 'barnyard_enable' since any Barnyard2
+	// chaining requires unified2 logging.
+	if (isset($pconfig['snortunifiedlog'])) {
+		unset($pconfig['snortunifiedlog']);
+		$pconfig['barnyard_enable'] = 'on';
+		$updated_cfg = true;
+	}
+
+	// Migrate new POP3 preprocessor parameter settings
+	if (empty($pconfig['pop_memcap'])) {
+		$pconfig['pop_memcap'] = "838860";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['pop_b64_decode_depth']) && $pconfig['pop_b64_decode_depth'] != '0') {
+		$pconfig['pop_b64_decode_depth'] = "0";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['pop_qp_decode_depth']) && $pconfig['pop_qp_decode_depth'] != '0') {
+		$pconfig['pop_qp_decode_depth'] = "0";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['pop_bitenc_decode_depth']) && $pconfig['pop_bitenc_decode_depth'] != '0') {
+		$pconfig['pop_bitenc_decode_depth'] = "0";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['pop_uu_decode_depth']) && $pconfig['pop_uu_decode_depth'] != '0') {
+		$pconfig['pop_uu_decode_depth'] = "0";
+		$updated_cfg = true;
+	}
+
+	// Migrate new IMAP preprocessor parameter settings
+	if (empty($pconfig['imap_memcap'])) {
+		$pconfig['imap_memcap'] = "838860";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['imap_b64_decode_depth']) && $pconfig['imap_b64_decode_depth'] != '0') {
+		$pconfig['imap_b64_decode_depth'] = "0";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['imap_qp_decode_depth']) && $pconfig['imap_qp_decode_depth'] != '0') {
+		$pconfig['imap_qp_decode_depth'] = "0";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['imap_bitenc_decode_depth']) && $pconfig['imap_bitenc_decode_depth'] != '0') {
+		$pconfig['imap_bitenc_decode_depth'] = "0";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['imap_uu_decode_depth']) && $pconfig['imap_uu_decode_depth'] != '0') {
+		$pconfig['imap_uu_decode_depth'] = "0";
+		$updated_cfg = true;
+	}
+
+	// Migrate new SMTP preprocessor parameter settings
+	if (empty($pconfig['smtp_memcap'])) {
+		$pconfig['smtp_memcap'] = "838860";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['smtp_max_mime_mem'])) {
+		$pconfig['smtp_max_mime_mem'] = "838860";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['smtp_b64_decode_depth']) && $pconfig['smtp_b64_decode_depth'] != "0") {
+		$pconfig['smtp_b64_decode_depth'] = "0";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['smtp_qp_decode_depth']) && $pconfig['smtp_qp_decode_depth'] != "0") {
+		$pconfig['smtp_qp_decode_depth'] = "0";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['smtp_bitenc_decode_depth']) && $pconfig['smtp_bitenc_decode_depth'] != "0") {
+		$pconfig['smtp_bitenc_decode_depth'] = "0";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['smtp_uu_decode_depth']) && $pconfig['smtp_uu_decode_depth'] != "0") {
+		$pconfig['smtp_uu_decode_depth'] = "0";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['smtp_email_hdrs_log_depth'])) {
+		$pconfig['smtp_email_hdrs_log_depth'] = "1464";
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['smtp_ignore_tls_data'])) {
+		$pconfig['smtp_ignore_tls_data'] = 'on';
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['smtp_log_mail_from'])) {
+		$pconfig['smtp_log_mail_from'] = 'on';
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['smtp_log_rcpt_to'])) {
+		$pconfig['smtp_log_rcpt_to'] = 'on';
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['smtp_log_filename'])) {
+		$pconfig['smtp_log_filename'] = 'on';
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['smtp_log_email_hdrs'])) {
+		$pconfig['smtp_log_email_hdrs'] = 'on';
+		$updated_cfg = true;
+	}
+
+	// Migrate any BY2 limit for unified2 logs to new format
+	if (!empty($pconfig['unified2_log_limit']) && 
+	    !preg_match('/^\d+[g|k|m|G|K|M]/', $pconfig['unified2_log_limit'])) {
+		$pconfig['unified2_log_limit'] .= "M";
+		$updated_cfg = true;
+	}
+
+	// Default any unconfigured AppID preprocessor settings
+	if (empty($pconfig['appid_preproc'])) {
+		$pconfig['appid_preproc'] = 'off';
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['sf_appid_mem_cap'])) {
+		$pconfig['sf_appid_mem_cap'] = '256';
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['sf_appid_statslog'])) {
+		$pconfig['sf_appid_statslog'] = 'on';
+		$updated_cfg = true;
+	}
+	if (empty($pconfig['sf_appid_stats_period'])) {
+		$pconfig['sf_appid_stats_period'] = '300';
+		$updated_cfg = true;
+	}
+
 	// Save the new configuration data into the $config array pointer
 	$r = $pconfig;
 }
 // Release reference to final array element
 unset($r);
 
-// Write out the new configuration to disk if we changed anything
+// Log a message if we changed anything
 if ($updated_cfg) {
-	$config['installedpackages']['snortglobal']['snort_config_ver'] = "3.0.1";
-	log_error("[Snort] Saving configuration settings in new format...");
-	write_config();
 	log_error("[Snort] Settings successfully migrated to new configuration format...");
 }
-else
+else {
 	log_error("[Snort] Configuration version is current...");
+}
 
 ?>

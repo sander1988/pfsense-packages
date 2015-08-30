@@ -29,34 +29,13 @@
 
 require("globals.inc");
 require("guiconfig.inc");
-require("/usr/local/pkg/autoconfigbackup.inc");
+require("autoconfigbackup.inc");
 
-$pfSversion = str_replace("\n", "", file_get_contents("/etc/version"));
-if(strstr($pfSversion, "1.2")) 
+$pf_version=substr(trim(file_get_contents("/etc/version")),0,3);
+if ($pf_version < 2.0)
 	require("crypt_acb.php");
 
-// Seperator used during client / server communications
-$oper_sep			= "\|\|";
-
-// Encryption password 
-$decrypt_password 	= $config['installedpackages']['autoconfigbackup']['config'][0]['crypto_password'];
-
-// Defined username
-$username			= $config['installedpackages']['autoconfigbackup']['config'][0]['username'];
-
-// Defined password
-$password			= $config['installedpackages']['autoconfigbackup']['config'][0]['password'];
-
-// URL to restore.php
-$get_url			= "https://{$username}:{$password}@portal.pfsense.org/pfSconfigbackups/restore.php";
-
-// URL to delete.php
-$del_url			= "https://{$username}:{$password}@portal.pfsense.org/pfSconfigbackups/delete.php";
-
-// Set hostname
-$hostname			= $config['system']['hostname'] . "." . $config['system']['domain'];
-
-if(!$username) {
+if(!$config['installedpackages']['autoconfigbackup']['config'][0]['username']) {
 	Header("Location: /pkg_edit.php?xml=autoconfigbackup.xml&id=0&savemsg=Please+setup+Auto+Config+Backup");
 	exit;
 }
@@ -69,7 +48,9 @@ if($_POST) {
 	else 
 		write_config("Backup invoked via Auto Config Backup.");
 	$config = parse_config(true);
-	exec("echo > /cf/conf/lastpfSbackup.txt");
+	conf_mount_rw();
+	@unlink("/cf/conf/lastpfSbackup.txt", "");
+	conf_mount_ro();
 	upload_config($_REQUEST['reason']);
 	$savemsg = "Backup completed successfully.";
 	$donotshowheader=true;
@@ -84,7 +65,7 @@ include("head.inc");
 <div id='maincontent'>
 <?php
 	include("fbegin.inc"); 
-	if(strstr($pfSversion, "1.2")) 
+	if ($pf_version < 2.0)
 		echo "<p class=\"pgtitle\">{$pgtitle}</p>";
 	if($savemsg) {
 		print_info_box($savemsg);
@@ -121,14 +102,6 @@ include("head.inc");
 								</td>
 								<td>
 									<input name="reason" id="reason" size="80">
-								</td>
-							</tr>
-							<tr>
-								<td align="right">
-									Do not overwrite previous backups for this hostname:
-								</td>
-								<td>
-									<input type="checkbox" name="nooverwrite">
 								</td>
 							</tr>
 							<tr>

@@ -34,8 +34,8 @@
 
 ##|+PRIV
 ##|*IDENT=page-status-mailreportsaddgraph
-##|*NAME=Status: E-Mail Reports: Add Graph page
-##|*DESCR=Allow access to the 'Status: E-Mail Reports: Add Graph' page.
+##|*NAME=Status: Email Reports: Add Graph page
+##|*DESCR=Allow access to the 'Status: Email Reports: Add Graph' page.
 ##|*MATCH=status_mail_report_add_graph.php*
 ##|-PRIV
 
@@ -130,16 +130,16 @@ $custom_databases = array_merge($dbheader_custom, $databases);
 
 $styles = array('inverse' => gettext('Inverse'),
 		'absolute' => gettext('Absolute'));
-$graphs = array("8hour", "day", "week", "month", "quarter", "year", "4year");
+$graphs = array("eighthour", "day", "week", "month", "quarter", "year", "fouryear");
 $periods = array("absolute" => gettext("Absolute Timespans"), "current" => gettext("Current Period"), "previous" => gettext("Previous Period"));
 $graph_length = array(
-	"8hour" => 28800,
+	"eighthour" => 28800,
 	"day" => 86400,
 	"week" => 604800,
 	"month" => 2764800,
 	"quarter" => 8035200,
 	"year" => 31622400,
-	"4year" => 126489600);
+	"fouryear" => 126489600);
 
 if ($_POST) {
 	unset($_POST['__csrf_magic']);
@@ -158,7 +158,7 @@ if ($_POST) {
 }
 
 
-$pgtitle = array(gettext("Status"),gettext("Add Mail Report Graph"));
+$pgtitle = array(gettext("Status"),gettext("Add Email Report Graph"));
 include("head.inc");
 ?>
 <body link="#0000CC" vlink="#0000CC" alink="#0000CC">
@@ -219,6 +219,7 @@ include("head.inc");
 				<select name="timespan" class="formselect" style="z-index: -10;">
 				<?php
 				foreach (array_keys($graph_length) as $timespan) {
+					$pconfig['timespan'] = fixup_graph_timespan($pconfig['timespan']);
 					echo "<option value=\"$timespan\"";
 					if ($timespan == $pconfig['timespan']) echo " selected";
 					echo ">" . htmlspecialchars(ucwords($timespan)) . "</option>\n";

@@ -34,9 +34,15 @@ if(!function_exists("filter_configure"))
 
 function sync_package_spamd() {
 	global $config, $g;
+	$pf_version = substr(trim(file_get_contents("/etc/version")),0,3);
+	if ($pf_version != "2.2") {
+		$localpath = "/usr/local";
+	} else {
+		$ARCH = php_uname("m");
+		$localpath = "/usr/pbi/spamd-$ARCH/local";
+	}
 	
 	conf_mount_rw();
-	config_lock();
 	$fd = fopen("/etc/spamd.conf","w");
 	/* all header */
 	fwrite($fd, "all:\\\n\t:whitelist:blacklist");
@@ -130,8 +136,8 @@ function sync_package_spamd() {
 		 "fi\n" .
 	     "/usr/local/sbin/spamd-setup -d &\n" .
 		 "/sbin/pflogd &\n" .
-		 "/usr/local/libexec/spamd {$greyparms}{$identifier}{$greylisting}{$maxcon}{$maxblack}{$window}{$replysmtperror} 127.0.0.1 &\n" .
-		 "/usr/local/libexec/spamlogd\n";
+		 "$localpath/libexec/spamd {$greyparms}{$identifier}{$greylisting}{$maxcon}{$maxblack}{$window}{$replysmtperror} 127.0.0.1 &\n" .
+		 "$localpath/libexec/spamlogd\n";
 	$stop  = "/usr/bin/killall spamd-setup\n" .
 		 "/usr/bin/killall spamlogd\n" .
 		 "/usr/bin/killall spamd\n" .
@@ -148,13 +154,12 @@ function sync_package_spamd() {
 	spamd_install_cron(true);
 	log_error("Mounting RO");	
 	conf_mount_ro();
-	log_error("Unlocking config");	
-	config_unlock();
 	log_error("Restart cron");	
 	mwexec("killall -HUP cron");
 	log_error("Setting up spamd.conf symlink");	
-	mwexec("rm -f /usr/local/etc/spamd/spamd.conf");
-	mwexec("ln -s /etc/spamd.conf /usr/local/etc/spamd/spamd.conf");
+	unlink_if_exists("$localpath/etc/spamd/spamd.conf");
+	symlink("/etc/spamd.conf", "$localpath/etc/spamd/spamd.conf");
+	
 	log_error("Stopping spamd");
 	mwexec("/usr/local/etc/rc.d/spamd.sh stop");
 	sleep(1);
@@ -168,7 +173,6 @@ function sync_package_spamd() {
 function sync_package_spamd_whitelist() {
 	global $config;
 	conf_mount_rw();
-	config_lock();
 	/* write out ip to the whitelist db */
 	$fd = fopen("/var/db/whitelist.txt","w");
 	if($config['installedpackages']['spamdwhitelist']['config'] != "") {
@@ -181,7 +185,6 @@ function sync_package_spamd_whitelist() {
 	mwexec("/usr/bin/killall -HUP spamlogd");
 	mwexec("/sbin/pfctl -t spamd-white -T add {$spamd['ip']}");
 	conf_mount_ro();
-	config_unlock();
 }
 
 function spamd_generate_rules($type) {
@@ -191,21 +194,38 @@ function spamd_generate_rules($type) {
 	switch($type) {
 	case 'nat':
 		$natrules .= "\n# spam table \n";
-                $wanif = get_real_interface("wan");
-                $natrules .= "table <whitelist> persist\n";
-                $natrules .= "table <blacklist> persist\n";
-                $natrules .= "table <spamd> persist\n";
-                if(file_exists("/var/db/whitelist.txt"))
-                        $natrules .= "table <spamd-white> persist file \"/var/db/whitelist.txt\"\n";
-                $natrules .= "rdr pass on {$wanif} proto tcp from <blacklist> to port smtp -> 127.0.0.1 port spamd\n";
-                $natrules .= "rdr pass on {$wanif} proto tcp from <spamd> to port smtp -> 127.0.0.1 port spamd\n";
-                $natrules .= "rdr pass on {$wanif} proto tcp from !<spamd-white> to port smtp -> 127.0.0.1 port spamd\n";
-                if($config['installedpackages']['spamdsettings']['config'])
-                        foreach($config['installedpackages']['spamdsettings']['config'] as $ss)
-                                $nextmta = $ss['nextmta'];
-                if($nextmta <> "") {
-                        $natrules .= "rdr pass on {$wanif} proto tcp from <spamd-white> to port smtp -> {$nextmta} port smtp\n";
-                }
+		$natrules .= "table <whitelist> persist\n";
+		$natrules .= "table <blacklist> persist\n";
+		$natrules .= "table <spamd> persist\n";
+		if (file_exists("/var/db/whitelist.txt")) {
+			$natrules .= "table <spamd-white> persist file \"/var/db/whitelist.txt\"\n";
+		}
+
+		if (is_array($config['installedpackages']['spamdsettings']['config'])) {
+			$spamdconfig = $config['installedpackages']['spamdsettings']['config']['0'];
+		} else {
+			$spamdconfig = $config['installedpackages']['spamdsettings']['config'];
+		}
+
+		if ($spamdconfig) {
+			$nextmta = $spamdconfig['nextmta'];
+			$spamdbinds = explode(',', $spamdconfig['spamdbinds_array']);
+			if (is_array($spamdbinds)) {
+				foreach ($spamdbinds as $interface) {
+					$wanif = get_real_interface($interface);
+					if (!isset($wanif)) {
+						continue;
+					}
+					$natrules .= "rdr pass on {$wanif} proto tcp from <blacklist> to port smtp -> 127.0.0.1 port spamd\n";
+					$natrules .= "rdr pass on {$wanif} proto tcp from <spamd> to port smtp -> 127.0.0.1 port spamd\n";
+					$natrules .= "rdr pass on {$wanif} proto tcp from !<spamd-white> to port smtp -> 127.0.0.1 port spamd\n";
+					if ($nextmta <> "") {
+						$natrules .= "rdr pass on {$wanif} proto tcp from <spamd-white> to port smtp -> {$nextmta} port smtp\n";
+					}
+				}
+			}
+		}
+		$natrules .= "\n";
 
 		break;
 	}
@@ -264,22 +284,14 @@ function custom_php_install_command() {
 	global $config, $g;
 	system("touch /var/db/whitelist.txt");
 	system("touch /var/db/blacklist.txt");
-	sync_package_spamd();
-	conf_mount_rw();
 	exec("/usr/sbin/pw usermod _spamd -g proxy -G _spamd,proxy");
-	exec("/bin/cp /usr/local/etc/spamd/spamd.conf.sample /usr/local/etc/spamd/spamd.conf");
-	conf_mount_ro();
+	sync_package_spamd();
 }
 
 function custom_php_deinstall_command() {
 	global $config, $g;
-	conf_mount_rw();
-	exec("killall -9 spamd");
 	unlink_if_exists("/usr/local/pkg/pf/spamd_rules.php");
-	unlink_if_exists("/usr/local/www/spamd_rules.php");
-	unlink_if_exists("/usr/local/etc/rc.d/spamd.sh");
 	spamd_install_cron(false);
-	conf_mount_ro();
 	filter_configure();
 }
 
@@ -324,7 +336,7 @@ function spamd_install_cron($should_install) {
 	}
 }
 
-function spamd_validate_input($post, $input_errors) {
+function spamd_validate_input($post, &$input_errors) {
 	global $config, $g;
 	$nextmta = str_replace("$", "", $post['nextmta']);
 	if(stristr($nextmta, "{")) {

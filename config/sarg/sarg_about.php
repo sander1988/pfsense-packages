@@ -1,7 +1,7 @@
 <?php
 /*
 	sarg_about.php
-	part of pfSense (http://www.pfsense.com/)
+	part of pfSense (https://www.pfsense.org/)
 	Copyright (C) 2012 Marcello Coutinho <marcellocoutinho@gmail.com>
 	All rights reserved.
 
@@ -29,8 +29,8 @@
 
 require("guiconfig.inc");
 
-$pfSversion = str_replace("\n", "", file_get_contents("/etc/version"));
-if(strstr($pfSversion, "1.2"))
+$pf_version=substr(trim(file_get_contents("/etc/version")),0,3);
+if ($pf_version < 2.0)
 	$one_two = true;
 
 $pgtitle = "About: Sarg Package";
@@ -73,18 +73,18 @@ include("head.inc");
 						</tr>
 						<tr>
                         <td width="22%" valign="top" class="vncell"><?=gettext("Sarg Site");?></td>
-						<td width="78%" class="vtable"><?=gettext("<a target=_new href='http://sarg.sourceforge.net/welcome.php'>Squid Analysis Report Generator</a><br><br>");?>
+						<td width="78%" class="vtable"><?=gettext("<a target=_new href='http://sarg.sourceforge.net/'>Squid Analysis Report Generator</a><br><br>");?>
                         </tr>
                         <tr>
 						<td colspan="2" valign="top" class="listtopic"><?=gettext("About sarg package"); ?></td>
 						</tr>
 						<tr>
                         <td width="22%" valign="top" class="vncell"><?=gettext("Credits ");?></td>
-                        <td width="78%" class="vtable"><?=gettext("Package Created by <a target=_new href='http://forum.pfsense.org/index.php?action=profile;u=4710'>Marcello Coutinho</a><br><br>");?></td>
+                        <td width="78%" class="vtable"><?=gettext("Package Created by <a target=_new href='https://forum.pfsense.org/index.php?action=profile;u=4710'>Marcello Coutinho</a><br><br>");?></td>
                         </tr>
 						<tr>
-                        <td width="22%" valign="top" class="vncell"><?=gettext("Donatios ");?></td>
-                        <td width="78%" class="vtable"><?=gettext("If you like this package, please <a target=_new href='http://www.pfsense.org/index.php?option=com_content&task=view&id=47&Itemid=77'>donate to pfSense project</a>.<br><br>
+                        <td width="22%" valign="top" class="vncell"><?=gettext("Donations ");?></td>
+                        <td width="78%" class="vtable"><?=gettext("If you like this package, please <a target=_new href='https://www.pfsense.org/index.php?option=com_content&task=view&id=47&Itemid=77'>donate to pfSense project</a>.<br><br>
 								 If you want that your donation goes to this package developer, make a note on donation forwarding it to me.<br><br>");?></td>
                         </tr>
 						</table>

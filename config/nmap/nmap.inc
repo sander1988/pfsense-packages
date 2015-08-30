@@ -1,9 +1,9 @@
 <?
-/* $Id$ */
 /*
-	part of pfSense (http://www.pfsense.org/)
-
-	Copyright (C) 2006 Bill Marquette - bill.marquette@gmail.com.
+	nmap.inc
+	part of pfSense (https://www.pfSense.org/)
+	Copyright (C) 2006 Bill Marquette <bill.marquette@gmail.com>
+	Copyright (C) 2015 ESF, LLC
 	All rights reserved.
 
 	Redistribution and use in source and binary forms, with or without
@@ -28,13 +28,31 @@
 	POSSIBILITY OF SUCH DAMAGE.
 */
 
-function nmap_custom_php_validation_command($post, $input_errors) {
+function nmap_install() {
+	$destination_file = "/usr/local/share/nmap/nmap-mac-prefixes";
+	$pfs_version = substr(trim(file_get_contents("/etc/version")),0,3);
+	switch ($pfs_version) {
+		case "2.1":
+			$source_file = "/usr/pbi/nmap-" . php_uname("m") . "/share/nmap/nmap-mac-prefixes";
+			break;
+		case "2.2":
+			$source_file = "/usr/pbi/nmap-" . php_uname("m") . "/local/share/nmap/nmap-mac-prefixes";
+			break;
+		default:
+			return null;
+	}
+	/* Only copy the file if it doesn't exist */
+	if (file_exists($source_file) && !file_exists($destination_file)) {
+		safe_mkdir(dirname($destination_file));
+		@symlink($source_file, $destination_file);
+	}
+}
+
+function nmap_custom_php_validation_command($post, &$input_errors) {
 	global $_POST, $savemsg, $config;
 	if (empty($_POST['hostname'])) {
 		$input_errors[] = gettext("You must enter an IP address to scan.");
-	} elseif (!(is_ipaddr($_POST['hostname']) ||
-			is_subnet($_POST['hostname']) ||
-			is_hostname($_POST['hostname']))) {
+	} elseif (!(is_ipaddr($_POST['hostname']) || is_subnet($_POST['hostname']) || is_hostname($_POST['hostname']))) {
 		$input_errors[] = gettext("You must enter a valid IP address to scan.");
 	}
 
@@ -49,9 +67,9 @@ function nmap_custom_php_validation_command($post, $input_errors) {
 function nmap_custom_add_php_command() {
 	$nmap_options = "";
 
-	if (function_exists("is_ipaddrv6") && function_exists("is_subnetv6"))
-		if (is_ipaddrv6($_POST['hostname']) || is_subnetv6($_POST['hostname']))
-			$nmap_options .= " -6";
+	if (is_ipaddrv6($_POST['hostname']) || is_subnetv6($_POST['hostname'])) {
+		$nmap_options .= " -6";
+	}
 
 	switch($_POST['scanmethod']) {
 		case 'syn':
@@ -71,14 +89,23 @@ function nmap_custom_add_php_command() {
 			break;
 	}
 
-	if($_POST['noping']) $nmap_options .= " -P0";
-	if($_POST['servicever']) $nmap_options .= " -sV";
-	if($_POST['osdetect']) $nmap_options .= " -O";
-	if(!empty($_POST['interface'])) $nmap_options .= " -e " . get_real_interface($_POST['interface']);
+	if ($_POST['noping']) {
+		$nmap_options .= " -P0";
+	}
+	if ($_POST['servicever']) {
+		$nmap_options .= " -sV";
+	}
+	if ($_POST['osdetect']) {
+		$nmap_options .= " -O";
+	}
+	if (!empty($_POST['interface'])) {
+		$nmap_options .= " -e " . get_real_interface($_POST['interface']);
+	}
 
 	$nmap_options .= " " . escapeshellarg($_POST['hostname']);
-	echo "Running: /usr/local/bin/nmap {$nmap_options}</br>";
+	echo "<strong>Running: /usr/local/bin/nmap {$nmap_options}</strong><br />";
 	system("/usr/local/bin/nmap" . $nmap_options);
+	echo "<br /><br /><input class=\"formbtn\" type=\"button\" value=\"Back to NMap\" onclick=\"history.back()\" />";
 }
 
 function nmap_get_interfaces() {

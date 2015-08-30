@@ -103,7 +103,6 @@
 	<![CDATA[
 	function sync_package_ntop() {
 		conf_mount_rw();
-		config_lock();
 		global $config;
 		global $input_errors;
 		if ($_POST) {
@@ -149,7 +148,6 @@
 		sleep(2);
 		start_service("ntop");
 		conf_mount_ro();
-		config_unlock();
 	}
 	]]>
 	</custom_php_global_functions>
@@ -162,9 +160,6 @@
 	<custom_php_install_command>
 		sync_package_ntop();
 	</custom_php_install_command>
-	<custom_php_deinstall_command>
-		exec("rm /usr/local/etc/rc.d/ntop*");
-	</custom_php_deinstall_command>
 	<custom_php_validation_command>
 	<![CDATA[
 	if ($_POST) {
