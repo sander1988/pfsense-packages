@@ -43,8 +43,8 @@ function teamspeak3_custom_php_install_command()
 	conf_mount_rw();
 	
 	// Create teamspeak user and group (binary file owner and service run-as user).
-	exec("/usr/sbin/pw groupadd ".TeamSpeak3Constants::BinaryGroup);
-	exec("/usr/sbin/pw useradd ".TeamSpeak3Constants::BinaryUser." -c \"TeamSpeak 3 server\" -g ".TeamSpeak3Constants::BinaryGroup." -d /nonexistent -s /usr/sbin/nologin");
+	exec("/usr/sbin/pw groupadd -n ".TeamSpeak3Constants::BinaryGroup." -g ".TeamSpeak3Constants::BinaryGid);
+	exec("/usr/sbin/pw useradd -n ".TeamSpeak3Constants::BinaryUser." -u ".TeamSpeak3Constants::BinaryUid." -c \"TeamSpeak 3 server\" -g ".TeamSpeak3Constants::BinaryGroup." -d /nonexistent -s /usr/sbin/nologin");
 	
 	// Create binary directory and put copy default server ini file.
 	safe_mkdir(TeamSpeak3Constants::BinaryDirectory);	
@@ -73,14 +73,21 @@ function teamspeak3_custom_php_deinstall_command()
 	
 	conf_mount_rw();
 	
-	stop_service(TeamSpeak3Constants::ServiceName);
+	stop_service(TeamSpeak3Constants::ServiceName);	
 	
-	mwexec("rm -Rf ".TeamSpeak3Constants::BinaryDirectory);
+	if($config['installedpackages']['teamspeak3']['config'][0]['keepfiles'] != 'on')
+	{
+		mwexec("rm -Rf ".TeamSpeak3Constants::BinaryDirectory);
+	}	
 	mwexec("rm -f ".RCFILEPREFIX.TeamSpeak3Constants::ServiceName.'.sh');
 	
 	exec("/usr/sbin/pw userdel ".TeamSpeak3Constants::BinaryUser);
 	exec("/usr/sbin/pw groupdel ".TeamSpeak3Constants::BinaryGroup);
-	unset($config['installedpackages']['teamspeak3']);
+	
+	if($config['installedpackages']['teamspeak3']['config'][0]['keepfiles'] != 'on')
+	{
+		unset($config['installedpackages']['teamspeak3']);
+	}
 	
 	write_config();
 	conf_mount_ro();	

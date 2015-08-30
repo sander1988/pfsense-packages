@@ -98,6 +98,13 @@
 			<type>checkbox</type>
 		</field>
 		<field>
+			<fielddescr>Keep TeamSpeak 3 database, files and configuration after package removal.</fielddescr>
+			<fieldname>keepfiles</fieldname>
+			<description>Check this box to prevent the removal of TeamSpeak 3 files on package deletion.</description>
+			<type>checkbox</type>
+			<default_value>on</default_value>
+		</field>
+		<field>
 			<fielddescr>TeamSpeak 3 configuration (ts3server.ini)</fielddescr>
 			<fieldname>ts3serverconfig</fieldname>
 			<value></value>
@@ -123,44 +130,37 @@
 	<additional_files_needed>
 		<prefix>/usr/local/pkg/</prefix>
 		<chmod>0644</chmod>
-		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/teamspeak3.inc
-		</item>
+		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/teamspeak3.inc</item>
 	</additional_files_needed>
 	<additional_files_needed>
 		<prefix>/usr/local/pkg/</prefix>
 		<chmod>0644</chmod>
-		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/teamspeak3_constants.inc
-		</item>
+		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/teamspeak3_constants.inc</item>
 	</additional_files_needed>
 	<additional_files_needed>
 		<prefix>/usr/local/pkg/</prefix>
 		<chmod>0644</chmod>
-		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/ts3server.ini.default
-		</item>
+		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/ts3server.ini.default</item>
 	</additional_files_needed>
 	<additional_files_needed>
 		<prefix>/usr/local/pkg/</prefix>
 		<chmod>0755</chmod>
-		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/service.sh.tmp
-		</item>
+		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/service.sh.tmp</item>
 	</additional_files_needed>
 	<additional_files_needed>
 		<prefix>/usr/local/www/</prefix>
 		<chmod>0644</chmod>
-		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/teamspeak3_show_logs.php
-		</item>
+		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/teamspeak3_show_logs.php</item>
 	</additional_files_needed>
 	<additional_files_needed>
 		<prefix>/usr/local/www/</prefix>
 		<chmod>0644</chmod>
-		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/teamspeak3_backup_restore.php
-		</item>
+		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/teamspeak3_backup_restore.php</item>
 	</additional_files_needed>
 	<additional_files_needed>
 		<prefix>/usr/local/www/</prefix>
 		<chmod>0644</chmod>
-		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/teamspeak3_install.php
-		</item>
+		<item>http://pf.hosting.peterse.nl/packages/config/teamspeak3/teamspeak3_install.php</item>
 	</additional_files_needed>
 
 	<!-- Custom commands used by install/remove/update process. -->

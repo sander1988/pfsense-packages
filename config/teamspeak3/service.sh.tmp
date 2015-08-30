@@ -8,6 +8,8 @@ RUNASUSER="teamspeak"
 cd "${BINARYPATH}"
 LIBRARYPATH="$(pwd)"
 
+export LC_ALL="C"
+
 case "$1" in
         start)
                 if [ -e ts3server.pid ]; then
@@ -26,7 +28,7 @@ case "$1" in
                         while [ "$c" -le 10 ]; do
                                 echo -n "!"
                                 sleep 1
-                                c=$((++c))
+								c=$(($c+1))
                         done
                         echo "!"
                 fi
@@ -60,7 +62,7 @@ case "$1" in
                                         else
                                                 break
                                         fi
-                                        c=$((++c))
+                                        c=$(($c+1))
                                 done
                         fi
                         if ( kill -0 $(cat ts3server.pid) 2> /dev/null ); then

@@ -37,6 +37,8 @@ class TeamSpeak3Constants
 	const PkgDirectory = "/usr/local/pkg";
 	const BinaryDirectory = "/etc/teamspeak3";
 	const BinaryStartScript = "ts3server_startscript.sh";
+	const BinaryUid = 1000; // Should < 2000 OR > 65000 to avoid issues.
+	const BinaryGid = 1000; // Should < 2000 OR > 65000 to avoid issues.
 	const BinaryUser = "teamspeak";
 	const BinaryGroup = "teamspeak";
 	const ServerConfigFile = "ts3server.ini";
