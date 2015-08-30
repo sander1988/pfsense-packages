@@ -47,7 +47,7 @@ include("head.inc");
 	if(!empty($_FILES["serverfile"]) && $_FILES["serverfile"]["error"] == 0)
 	{
 		$sErrorMessage = "";
-		if(teamspeak3_install_from_file($_FILES["serverfile"], &$sErrorMessage))
+		if(teamspeak3_install_from_file($_FILES["serverfile"], $sErrorMessage))
 		{
 			print_info_box("Succesfully installed or updated Teamspeak 3 server.");
 		}

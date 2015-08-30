@@ -37,22 +37,22 @@ require_once("guiconfig.inc");
 $sActionMessage = null;
 if(isset($_POST['download_ts3server_sqlitedb']))
 {
-	if(teamspeak3_download_backup("ts3server.sqlitedb", &$sActionMessage))
+	if(teamspeak3_download_backup("ts3server.sqlitedb", $sActionMessage))
 		exit;
 }
 else if(isset($_POST['download_ts3server_ini']))
 {
-	if(teamspeak3_download_backup("ts3server.ini", &$sActionMessage))
+	if(teamspeak3_download_backup("ts3server.ini", $sActionMessage))
 		exit;
 }
 else if(isset($_POST['download_ts3filebrowser']))
 {
-	if(teamspeak3_download_backup("ts3files.tar.gz", &$sActionMessage))
+	if(teamspeak3_download_backup("ts3files.tar.gz", $sActionMessage))
 		exit;
 }	
 else if(isset($_POST['restorebackup']) && isset($_FILES['restorefile']))
 {
-	teamspeak3_restore_backup($_POST['restoretype'], $_FILES['restorefile'], &$sActionMessage);	
+	teamspeak3_restore_backup($_POST['restoretype'], $_FILES['restorefile'], $sActionMessage);	
 }
 
 $closehead = true;

@@ -273,7 +273,7 @@ function teamspeak3_install_from_file($aFile, &$sErrorMessage)
 	
 	$sBinaryDirectory = null;
 	$sBinaryFile = null;
-	if(teamspeak3_find_binary_recursive($sTmpExtractPath, &$sBinaryDirectory, &$sBinaryFile))
+	if(teamspeak3_find_binary_recursive($sTmpExtractPath, $sBinaryDirectory, $sBinaryFile))
 	{		
 		$bServiceRunning = is_service_running(TeamSpeak3Constants::ServiceName);
 		if($bServiceRunning) stop_service(TeamSpeak3Constants::ServiceName);
@@ -313,7 +313,7 @@ function teamspeak3_find_binary_recursive($sSearchDirectory, &$sBinaryDirectory,
 		}
 		else if(is_dir($sFile))
 		{
-			if(teamspeak3_find_binary_recursive($sFile, &$sBinaryDirectory, &$sBinaryFile))
+			if(teamspeak3_find_binary_recursive($sFile, $sBinaryDirectory, $sBinaryFile))
 			{
 				return true;
 			}
